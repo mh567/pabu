@@ -361,7 +361,7 @@ test('口令空间：换用途/版本标签的证明定位不到空间', async (
 test('口令空间：check 不存在 → 不存在就是不存在，不隐式创建', async (t) => {
     const f = await fixture(t);
     const missing = await f.check('还没有人用过的口令');
-    assert.deepEqual(missing, { exists: false });
+    assert.deepEqual(missing, { exists: false, inviteRequired: true });
     assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM sync_spaces').get().n, 0, '检查不会创建空间');
     const missingProof = await spaceProof('还没有人用过的口令');
     expectStatus(() => f.store.connectSpace({ proof: missingProof, operationId: 'nothing' }), (e) => e.status === 404 && e.code === 'space_not_found');
@@ -611,6 +611,30 @@ test('总暂停：读/写/连/建/重签一律 503 sync_paused（带 Retry-After
     assert.equal(sync.SYNC_PAUSED_RETRY_MS, 5 * 60 * 1000);
 });
 
+test('邀请功能：默认要求邀请码，管理员关闭后只凭口令即可创建，重新开启立即恢复', async (t) => {
+    const f = await fixture(t);
+    // 默认开启：没有邀请码的创建被拒，且不会留下空间。
+    expectStatus(() => f.store.createSpace({ proof: 'a'.repeat(64), operationId: 'no-invite', config: CONFIG, modules: {} }),
+        (e) => e.status === 403 && e.code === 'invite_invalid');
+    assert.equal(f.db.prepare('SELECT COUNT(*) n FROM sync_spaces').get().n, 0);
+
+    const off = f.store.updateSettings({ inviteRequired: false }).settings;
+    assert.equal(off.inviteRequired, false);
+    assert.equal(off.creatingPaused, false, '只改邀请开关，不碰暂停新建');
+    const proof = await spaceProof('免邀请口令');
+    assert.deepEqual(f.store.checkSpace({ proof }), { exists: false, inviteRequired: false });
+    const created = f.store.createSpace({ proof, operationId: 'no-invite-ok', config: CONFIG, modules: {} });
+    assert.equal(created.success, true);
+    assert.equal(f.store.readConfig(created.deviceToken).revision, 1);
+    assert.equal(f.db.prepare('SELECT COUNT(*) n FROM sync_invites WHERE used_at IS NOT NULL').get().n, 0, '关闭邀请时不消耗邀请码');
+
+    // 重新开启：没有邀请码的新建又被拒，已有空间照常连接。
+    assert.equal(f.store.updateSettings({ inviteRequired: true }).settings.inviteRequired, true);
+    expectStatus(() => f.store.createSpace({ proof: 'b'.repeat(64), operationId: 'invite-back', config: CONFIG, modules: {} }),
+        (e) => e.status === 403 && e.code === 'invite_invalid');
+    assert.equal(f.store.connectSpace({ proof, operationId: 'still-connect' }).success, true);
+});
+
 test('撤销全部旧设备：revision 与内容都不动、不消耗邀请码、同 operationId 只撤一次、旧令牌与旧回执一律作废', async (t) => {
     const f = await fixture(t);
     const created = await f.create('回收口令', f.store.createInvite().invite.code);
@@ -772,7 +796,7 @@ test('迁移 v11 回填：物化字节数与 Buffer.byteLength 一致（含非 A
     // 迁移完的库能被 store 直接用（回填值就是运行时要用的那个值）。
     const store = sync.createSyncStore(db, { now: () => 1000, getPasswordHash: () => 'h', publicModuleIds: () => [] });
     // `updated_at = 0` 是 v11 的插入值，`readSettings` 把它归一化成 null（「从来没改过」）。
-    assert.deepEqual(store.readSettings(), { creatingPaused: false, syncPaused: false, updatedAt: null });
+    assert.deepEqual(store.readSettings(), { creatingPaused: false, syncPaused: false, inviteRequired: true, updatedAt: null });
     assert.equal(store.listSpaces().spaces[0].contentBytes, row.content_bytes);
     // 运行时的写入路径与回填口径必须一致：改写一次，物化值仍等于 Buffer.byteLength 之和。
     const device2 = db.prepare(`INSERT INTO sync_devices (token_hash, space_id, generation, created_at, last_seen_at, revoked)

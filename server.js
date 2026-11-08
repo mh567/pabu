@@ -946,7 +946,7 @@ app.post('/api/admin/sync-spaces/:id/reset-devices', rateLimit, requireAdmin, (r
     catch (error) { syncFailure(res, error); }
 });
 
-// 总开关（`creatingPaused` 暂停新建 / `syncPaused` 总暂停）。写进 `sync_settings`
+// 总开关（`inviteRequired` 邀请限制 / `creatingPaused` 暂停新建 / `syncPaused` 总暂停）。写进 `sync_settings`
 // 单行表——**必须落盘**，只存内存的话进程重启会静默放开总暂停。
 // GET 与 POST 成对：管理面板要能读到「现在是什么状态」，只有 POST 的话那个面板
 // 会永远显示成默认值（勾选框与真实策略不一致，用户会以为没生效）。

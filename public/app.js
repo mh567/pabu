@@ -250,6 +250,9 @@
             this.syncBusy = false;
             this.syncError = '';
             this.syncSpaceInfo = null;
+            // 服务端当前的邀请策略：来自 `/api/sync/space/check` 的响应。默认 true
+            // 是旧服务端的语义，也避免响应慢时把「需要邀请码」误判成不需要。
+            this.syncInviteRequired = true;
             this.syncProof = null;
             // 对话框节点：临开临建、关掉就删。不能常驻——`.ui-dialog-overlay`
             // 在本文件里是「有没有对话框开着」的判据（见 openSyncDialog 的注释）。
@@ -930,7 +933,7 @@
                 this.syncSpaces = data.spaces || [];
                 this.syncSpacesPage = data.page || { total: this.syncSpaces.length, offset: 0, limit: SYNC_PAGE_SIZE };
                 this.syncUsage = data.usage || { spaces: 0, bytes: 0, devices: 0 };
-                this.syncPolicy = data.settings || { creatingPaused: false, syncPaused: false };
+                this.syncPolicy = data.settings || { creatingPaused: false, syncPaused: false, inviteRequired: true };
                 this.syncSpacesRendered = true;
                 // 页码越界（删掉/筛掉最后一页的唯一一行之后）回退一页再拉一次。
                 // 只重试一次：再错就是服务端的事，不能在这里转圈。
@@ -972,7 +975,7 @@
             const host = $('#syncOverview');
             if (!host) return;
             const usage = this.syncUsage || { spaces: 0, bytes: 0, devices: 0 };
-            const policy = this.syncPolicy || { creatingPaused: false, syncPaused: false };
+            const policy = this.syncPolicy || { creatingPaused: false, syncPaused: false, inviteRequired: true };
             // 三种状态分开说：只暂停新建与总暂停看起来都是「没在新建」。
             const status = policy.syncPaused ? '已暂停' : policy.creatingPaused ? '暂停新建' : '正常';
             host.innerHTML = `
@@ -1110,14 +1113,22 @@
             if (done) this.showToast(`已停用 ${done} 个空间`);
         }
 
-        /** 总开关的勾选态与说明行。**两个开关各自独立**（暂停新建只挡新空间）。 */
+        /** 总开关的勾选态与说明行。**三个开关各自独立**（邀请码只管创建，暂停新建只挡新空间）。 */
         paintSyncPolicy() {
             const policy = this.syncPolicy;
             if (!policy) return;
+            const invite = $('#syncInviteRequired');
             const creating = $('#syncCreatingPaused');
             const total = $('#syncTotalPaused');
+            if (invite) invite.checked = policy.inviteRequired !== false;
             if (creating) creating.checked = !!policy.creatingPaused;
             if (total) total.checked = !!policy.syncPaused;
+            const inviteHint = $('#syncInviteHint');
+            if (inviteHint) {
+                inviteHint.textContent = policy.inviteRequired === false
+                    ? '邀请功能已关闭，访客只凭口令即可创建空间；已生成的邀请码保留，重新开启后生效。'
+                    : '邀请码一次性使用，有效期 48 小时。';
+            }
             const hint = $('#syncPolicyHint');
             if (!hint) return;
             // 三种状态的说明必须分开说：只暂停新建与总暂停看起来都是「没在新建」。
@@ -1125,7 +1136,9 @@
                 ? '总暂停已开启：所有空间的读写与连接都被拒绝（删除空间与撤销本机设备不受影响）。'
                 : policy.creatingPaused
                     ? '已暂停新建：不能再创建新空间，已有空间照常同步。'
-                    : '';
+                    : policy.inviteRequired === false
+                        ? '邀请功能已关闭：访客输入口令即可创建同步空间，无需邀请码。'
+                        : '';
             // 总暂停是「整台服务的读写都停了」，比「暂停新建」重一档：说这句话的那一行
             // 要显眼（照样例的红字），否则它读起来像一条普通提示。
             hint.classList.toggle('is-warn', !!policy.syncPaused);
@@ -1134,16 +1147,21 @@
         /**
          * 保存总开关。
          *
-         * ⚠️ 两个勾选框的值一起提交，但 `disabled` / `paused` 的语义各是各的
+         * ⚠️ 三个勾选框的值一起提交，但各自的语义独立
          * （服务端按 `!== undefined` 判，所以传 `false` 是真的会打开）。
          * 失败要把勾选态**回滚成服务端的确认值**，不能留着一个「看着已勾上、
          * 实际没生效」的界面。
          */
         async saveSyncPolicy() {
+            const invite = $('#syncInviteRequired');
             const creating = $('#syncCreatingPaused');
             const total = $('#syncTotalPaused');
-            const body = { creatingPaused: !!(creating && creating.checked), syncPaused: !!(total && total.checked) };
-            [creating, total].forEach(box => { if (box) box.disabled = true; });
+            const body = {
+                inviteRequired: !!(invite && invite.checked),
+                creatingPaused: !!(creating && creating.checked),
+                syncPaused: !!(total && total.checked)
+            };
+            [invite, creating, total].forEach(box => { if (box) box.disabled = true; });
             try {
                 const result = await API.post('/api/admin/sync-settings', body);
                 this.syncPolicy = result.settings;
@@ -1154,7 +1172,7 @@
                 this.paintSyncPolicy();   // 回滚成内存里的（服务端确认过的）值
                 this.showToast('保存失败：' + error.message, 'error');
             } finally {
-                [creating, total].forEach(box => { if (box) box.disabled = false; });
+                [invite, creating, total].forEach(box => { if (box) box.disabled = false; });
             }
         }
 
@@ -1539,7 +1557,7 @@
                     <p class="sync-state">删除云端空间？</p>
                     <p class="sync-note">云端配置会被删除，这台设备与其他所有已连接的设备都会立刻失效。本机导航会保留，但这一步无法撤销。</p>
                     <label class="ui-dialog-field"><span>重新输入口令</span><input id="syncDeletePassphrase" type="password" autocomplete="current-password" spellcheck="false" placeholder="用于确认这是你的空间"></label>
-                    <p class="sync-hint">删除后如果想再用同一口令同步，需要用新的邀请码重新创建空空间——旧内容不会回来。</p>
+                    <p class="sync-hint">删除后如果想再用同一口令同步，${this.syncInviteRequired ? '需要用新的邀请码重新创建空空间' : '重新输入口令即可创建空空间'}。旧内容不会回来。</p>
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncDeleteBack">返回</button>
@@ -1548,10 +1566,15 @@
                 return;
             }
             if (this.syncState === 'not_found') {
+                // 邀请功能关闭时不画邀请码输入框：只凭口令即可创建。文案要说清这一步
+                // 会上传本机配置，因为按钮一点就建空间。
+                const needsInvite = this.syncInviteRequired !== false;
                 body.innerHTML = `
                     <p class="sync-state">该口令还没有云端空间</p>
-                    <label class="ui-dialog-field"><span>邀请码</span><input id="syncInvite" type="text" autocomplete="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"></label>
-                    <p class="sync-hint">需要管理员发放的一次性邀请码。将把本机当前的导航配置上传为新空间。</p>
+                    ${needsInvite
+                        ? `<label class="ui-dialog-field"><span>邀请码</span><input id="syncInvite" type="text" autocomplete="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"></label>
+                    <p class="sync-hint">需要管理员发放的一次性邀请码。将把本机当前的导航配置上传为新空间。</p>`
+                        : `<p class="sync-hint">管理员没有开启邀请限制。将把本机当前的导航配置上传为新空间，之后在其它设备输入同一口令即可连接。</p>`}
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncBack">返回</button>
@@ -1616,6 +1639,8 @@
             try {
                 const proof = await this.deriveSyncProof(passphrase);
                 const result = await API.post('/api/sync/space/check', { proof });
+                // 服务端随检查一起回邀请策略：旧服务端没有这个字段，按「需要邀请码」处理。
+                this.syncInviteRequired = result.inviteRequired !== false;
                 if (result.exists) {
                     this.syncProof = proof;
                     this.syncSpaceInfo = result;
@@ -1633,18 +1658,21 @@
         }
 
         async createSyncSpace() {
-            const inviteCode = $('#syncInvite') ? $('#syncInvite').value : '';
-            if (!inviteCode.trim()) { this.setSyncState('not_found', '请输入邀请码'); return; }
+            const inviteCode = $('#syncInvite') ? $('#syncInvite').value.trim() : '';
+            // 只有开启邀请功能时才要求邀请码；关闭后服务端忽略这个字段，
+            // 这里也就不把空串发上去。
+            if (this.syncInviteRequired && !inviteCode) { this.setSyncState('not_found', '请输入邀请码'); return; }
             this.syncBusy = true;
             this.setSyncState('not_found');
             try {
-                const result = await API.post('/api/sync/space/create', {
+                const body = {
                     proof: this.syncProof,
-                    inviteCode,
                     operationId: crypto.randomUUID(),
                     config: window.NavigationSchema.publicConfig(structuredClone(this.config)),
                     modules: this.localModulePayload()
-                });
+                };
+                if (inviteCode) body.inviteCode = inviteCode;
+                const result = await API.post('/api/sync/space/create', body);
                 await this.finishSyncConnection(result, 'local');
             } catch (error) {
                 // 邀请码已被用掉 / 空间已被别人建出来：回到「已存在」让用户重新选。
@@ -4830,8 +4858,8 @@
                 </section>
                 <section class="admin-panel" role="tabpanel" id="adminPanelSync" aria-labelledby="adminTabSync" hidden>
                     <div class="section"><div class="section-title">用户与数据概览</div><div class="sync-overview" id="syncOverview"><div class="sync-stat"><b>—</b><span>用户数</span></div><div class="sync-stat"><b>—</b><span>存储占用</span></div><div class="sync-stat"><b>—</b><span>活跃设备</span></div><div class="sync-stat"><b>—</b><span>服务状态</span></div></div>
-                    <div class="sync-policy-row"><label class="sync-policy-item"><span>暂停新建</span><div class="toggle-switch"><input type="checkbox" id="syncCreatingPaused"><span class="toggle-slider"></span></div></label><label class="sync-policy-item"><span>总暂停</span><div class="toggle-switch"><input type="checkbox" id="syncTotalPaused"><span class="toggle-slider"></span></div></label></div><p id="syncPolicyHint" class="fav-hint"></p></div>
-                    <div class="section" id="syncInvitesSection"><div class="section-title">邀请码</div><p class="fav-hint">邀请码一次性使用，有效期 48 小时。</p><div class="sync-toolbar"><input id="syncInviteNote" maxlength="100" placeholder="备注" aria-label="邀请码备注"><button type="button" class="btn btn-sm" id="createSingleInviteBtn">单个生成</button><select id="syncInviteCount" aria-label="生成数量"><option value="1">1 张</option><option value="5">5 张</option><option value="10" selected>10 张</option><option value="custom">自定义</option></select><input type="number" id="syncInviteCustomCount" min="1" max="20" step="1" value="20" hidden aria-label="自定义张数"><button type="button" class="btn btn-sm btn-primary" id="createInviteBtn">批量生成</button></div><p class="sync-error" id="syncInviteError" hidden></p><div id="syncInviteBatch" hidden></div><div class="sync-toolbar"><select id="syncInviteState" aria-label="邀请码状态"><option value="all">全部</option><option value="unused">未使用</option><option value="used">已使用</option><option value="expired">已过期</option><option value="revoked">已撤销</option></select><button type="button" class="btn btn-sm" id="revokeSelectedInvites" disabled>撤销选中</button><span id="syncInviteCounts" class="sync-toolbar-note"></span></div><div class="sync-invite-list" id="syncInviteList"></div><div class="sync-pager" id="syncInvitePager" hidden></div></div>
+                    <div class="sync-policy-row"><label class="sync-policy-item"><span>需要邀请码</span><div class="toggle-switch"><input type="checkbox" id="syncInviteRequired"><span class="toggle-slider"></span></div></label><label class="sync-policy-item"><span>暂停新建</span><div class="toggle-switch"><input type="checkbox" id="syncCreatingPaused"><span class="toggle-slider"></span></div></label><label class="sync-policy-item"><span>总暂停</span><div class="toggle-switch"><input type="checkbox" id="syncTotalPaused"><span class="toggle-slider"></span></div></label></div><p id="syncPolicyHint" class="fav-hint"></p></div>
+                    <div class="section" id="syncInvitesSection"><div class="section-title">邀请码</div><p class="fav-hint" id="syncInviteHint">邀请码一次性使用，有效期 48 小时。</p><div class="sync-toolbar"><input id="syncInviteNote" maxlength="100" placeholder="备注" aria-label="邀请码备注"><button type="button" class="btn btn-sm" id="createSingleInviteBtn">单个生成</button><select id="syncInviteCount" aria-label="生成数量"><option value="1">1 张</option><option value="5">5 张</option><option value="10" selected>10 张</option><option value="custom">自定义</option></select><input type="number" id="syncInviteCustomCount" min="1" max="20" step="1" value="20" hidden aria-label="自定义张数"><button type="button" class="btn btn-sm btn-primary" id="createInviteBtn">批量生成</button></div><p class="sync-error" id="syncInviteError" hidden></p><div id="syncInviteBatch" hidden></div><div class="sync-toolbar"><select id="syncInviteState" aria-label="邀请码状态"><option value="all">全部</option><option value="unused">未使用</option><option value="used">已使用</option><option value="expired">已过期</option><option value="revoked">已撤销</option></select><button type="button" class="btn btn-sm" id="revokeSelectedInvites" disabled>撤销选中</button><span id="syncInviteCounts" class="sync-toolbar-note"></span></div><div class="sync-invite-list" id="syncInviteList"></div><div class="sync-pager" id="syncInvitePager" hidden></div></div>
                     <div class="section" id="syncSpacesSection"><div class="section-title">同步空间（用户）</div><p class="fav-hint">用户以同步空间表示。管理端只展示元数据，可以编辑备注、停用、删除和重置设备，不读取空间正文或设备凭据。</p><div class="sync-toolbar"><input type="search" id="syncSpaceSearch" placeholder="搜索备注" aria-label="搜索备注"><select id="syncSpaceState" aria-label="空间状态"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已停用</option><option value="deleted">已删除</option></select><select id="syncSpaceSort" aria-label="排序方式"><option value="updated">最近更新</option><option value="bytes">体积</option><option value="devices">设备数</option></select></div><div class="sync-toolbar"><button type="button" class="btn btn-sm" id="disableSelectedSpaces" disabled>批量停用</button><span id="syncSpacesSelection" class="sync-toolbar-note"></span><span id="syncSpacesSummary" class="sync-toolbar-note"></span></div><div class="sync-space-host" id="syncSpacesList"></div><div class="sync-pager" id="syncSpacesPager" hidden></div></div>
                 </section>
                 <section class="admin-panel" role="tabpanel" id="adminPanelAccount" aria-labelledby="adminTabAccount" hidden><div class="section"><div class="section-title">登录安全</div><div class="setting-row"><label><span>信任此设备</span><div class="toggle-switch"><input type="checkbox" id="trustDeviceToggle"><span class="toggle-slider"></span></div></label></div><p class="fav-hint" id="trustDeviceHint"></p></div><div class="section"><button class="btn btn-danger" id="logoutBtn" style="width:100%">退出登录</button></div></section></div>`;
@@ -4860,7 +4888,7 @@
                 if (action === 'reset-devices') this.resetSyncSpaceDevices(event.target.dataset.id);
                 if (action === 'retry-spaces') { this.syncSpacesRendered = false; this.renderSyncSpaces(); }
             });
-            $('#syncCreatingPaused').onchange = $('#syncTotalPaused').onchange = () => this.saveSyncPolicy();
+            $('#syncInviteRequired').onchange = $('#syncCreatingPaused').onchange = $('#syncTotalPaused').onchange = () => this.saveSyncPolicy();
             $('#syncSpacesList').addEventListener('change', event => { if (event.target.id === 'syncSpacesSelectAll') this.toggleAllSyncSpaces(event.target.checked); else if (event.target.dataset.selectSpace) this.toggleSyncSpaceSelection(event.target.dataset.selectSpace, event.target.checked); });
             $('#syncSpacesPager').addEventListener('click', event => { const step = this.syncSpacesFilter.limit || SYNC_PAGE_SIZE; if (event.target.dataset.action === 'spaces-prev') { this.syncSpacesFilter.offset = Math.max(0, this.syncSpacesFilter.offset - step); this.renderSyncSpaces(); } if (event.target.dataset.action === 'spaces-next') { this.syncSpacesFilter.offset += step; this.renderSyncSpaces(); } });
             $('#syncInviteState').value = this.syncInvitesFilter.state; $('#syncSpaceState').value = this.syncSpacesFilter.state; $('#syncSpaceSort').value = this.syncSpacesFilter.sort; $('#syncSpaceSearch').value = this.syncSpacesFilter.q;

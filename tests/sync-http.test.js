@@ -103,7 +103,7 @@ test('HTTP: 检查→创建→两台设备连接→读写版本冲突→刷新�
     const proof = await spaceProof(passphrase);
 
     const before = await (await f.check(proof)).json();
-    assert.deepEqual(before, { exists: false }, '不存在时不隐式创建');
+    assert.deepEqual(before, { exists: false, inviteRequired: true }, '不存在时不隐式创建');
 
     const invite = await f.newInvite(cookie);
     const created = await (await f.create(proof, invite.code)).json();
@@ -798,6 +798,29 @@ test('HTTP: 暂停新建只挡创建（已有空间照常同步），且被拒�
     // 邀请码没被烧掉：解除之后还能用。
     assert.equal((await (await f.setPolicy(cookie, { creatingPaused: false })).json()).settings.creatingPaused, false);
     assert.equal((await f.create(await spaceProof('暂停新建期间的口令'), spare.code, 'after-resume')).status, 200);
+});
+
+test('HTTP: 关闭邀请功能后无需邀请码即可创建，重新开启后恢复要求', async (t) => {
+    const f = await ready(t);
+    const cookie = await f.admin();
+    const off = await (await f.setPolicy(cookie, { inviteRequired: false })).json();
+    assert.equal(off.settings.inviteRequired, false);
+    assert.equal(off.settings.creatingPaused, false, '只改邀请开关，不碰暂停新建');
+
+    const proof = await spaceProof('免邀请 HTTP 口令');
+    assert.equal((await (await f.check(proof)).json()).inviteRequired, false, 'check 把公开策略一并返回');
+    const created = await f.create(proof, undefined, 'no-invite-create');
+    assert.equal(created.status, 200);
+    const body = await created.json();
+    assert.equal(body.success, true);
+    assert.equal((await f.read(body.deviceToken)).status, 200);
+
+    // 重新开启：新口令没有邀请码被拒，已有空间照常连接。
+    assert.equal((await (await f.setPolicy(cookie, { inviteRequired: true })).json()).settings.inviteRequired, true);
+    const blocked = await f.create(await spaceProof('恢复邀请后的口令'), undefined, 'invite-back');
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json()).code, 'invite_invalid');
+    assert.equal((await f.connect(proof, 'invite-back-connect')).status, 200);
 });
 
 test('HTTP: 限额由环境变量注入且真的生效（NAV_SYNC_SPACE_LIMIT / NAV_SYNC_CONTENT_BYTES_LIMIT）', async (t) => {

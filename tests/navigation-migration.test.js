@@ -15,10 +15,14 @@ const config = name => ({
     categories: [{ id: 'c1', name: name, bookmarks: [{ id: 'b1', title: 'Example', url: 'https://example.com/' }] }]
 });
 
+// 站点导航收敛是第 15 步（v15 → v16）。后面追加的迁移不影响这一步的起点，
+// 所以这里钉住步数而不是 `MIGRATIONS.length - 1`：后者会被后续迁移一起推着走。
+const SITE_MIGRATION_STEP = 15;
+
 function databaseAtPreviousVersion(file) {
     const db = new Database(file);
     db.pragma('foreign_keys = ON');
-    for (let version = 0; version < MIGRATIONS.length - 1; version++) {
+    for (let version = 0; version < SITE_MIGRATION_STEP; version++) {
         db.transaction(() => {
             MIGRATIONS[version](db);
             db.pragma(`user_version = ${version + 1}`);
