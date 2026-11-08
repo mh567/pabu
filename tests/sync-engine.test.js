@@ -50,9 +50,9 @@ const METHODS = [
     'handleSyncUploadFailure', 'handleSyncConflict', 'fetchSyncCloud', 'reconcileAgedPending',
     'syncPullCheck', 'applyCloudConfig', 'startSyncPolling', 'stopSyncPolling', 'stopSyncTimers',
     'syncSettledStatus', 'syncPayloadKey', 'syncClaimHeldElsewhere', 'loadSyncState', 'bindSyncChannel',
-    'onSyncVisibilityChange', 'onSyncOnline', 'onSyncOffline', 'pauseSyncForAdmin', 'resumeSyncAfterAdmin', 'notifySyncPeers', 'resolveSyncConflict', 'clearSyncConnection',
+    'onSyncVisibilityChange', 'onSyncOnline', 'onSyncOffline', 'notifySyncPeers', 'resolveSyncConflict', 'clearSyncConnection',
     'writeSyncWithEpochRetry', 'refreshSyncRecord', 'stopSyncLocal', 'syncTerminalOf', 'handleSyncTerminal', 'applySyncHalt', 'retrySyncAfterHalt',
-    'canRunOrdinarySync', 'syncContextSnapshot', 'syncContextHeld', 'waitForSession', 'resumeOrdinarySync',
+    'canRunOrdinarySync', 'syncContextSnapshot', 'syncContextHeld', 'waitForSession',
     'confirmStopSync', 'requestDeleteSpace', 'confirmDeleteSpace', 'openSyncDialog',
     'finishSyncConnection', 'persistSyncConnection', 'writeCloudConfig', 'syncCheckQuiet',
     'deriveSyncProof', 'validateSyncPassphrase'
@@ -161,8 +161,6 @@ function makeHarness(options = {}) {
         // 这样普通同步能跑；要测门的用例自己把这几个字段改掉。
         identityPending: false,
         sessionProbe: null,
-        privateEpoch: 0,
-        suspendedAdministrator: null,
         // #9：删除挡板（删除期间暂停上传）与停用挡板（空间被管理员停用后不再自动重试）
         // #10：停用挡板记住的是**哪一种暂停**（`'disabled' | 'paused'`），未暂停时是 null
         // ——与 public/app.js 的初始值逐字一致，别在这里造出 `false` 这种真代码不会有的值。
@@ -599,18 +597,15 @@ test('轮询：可见时按周期检查，隐藏时不跑，连接没了就停',
     assert.equal(h.calls.gets.length, stopped, '停掉之后不再检查');
 });
 
-test('管理员会话生效期间暂停调度；回到普通上下文再恢复', async () => {
+test('管理员会话生效期间本地同步照常轮询', async () => {
     const h = makeHarness();
+    h.app.authenticated = true;
     h.app.startSyncPolling();
-    assert.equal(h.clock.intervals(), 1, '有轮询在跑');
-    h.app.pauseSyncForAdmin();
-    assert.equal(h.clock.intervals(), 0, '暂停后没有定时器');
-    h.app.authenticated = false;
-    h.app.syncPending = null;
-    // #11 起恢复是「先协调云端、再续传、最后起轮询」的异步流程（顺序反了会对着
-    // 已被别的设备推进过的基线白打一轮），所以这里要 await，不能同步断言。
-    await h.app.resumeOrdinarySync();
-    assert.equal(h.clock.intervals(), 1, '恢复轮询');
+    const before = h.calls.gets.length;
+    await h.clock.advance(CONSTANTS.SYNC_POLL_MS * 3 + 10);
+    await h.flush();
+    assert.equal(h.calls.gets.length - before, 3, '管理员登录不暂停本地同步');
+    h.app.stopSyncPolling();
 });
 
 test('冲突裁决：两个方向都会先保住被覆盖的那一份', async () => {
@@ -1069,28 +1064,19 @@ test('额度拒绝（503 space_quota_exceeded）：不排退避、不丢 pending
 
 // ==================== #11：身份切换与上下文代次 ====================
 
-test('迟到的拉取不能把管理员配置写进普通同步记录（落盘点要比上下文代次）', async () => {
-    // 真实缺陷：只在**入口**判 authenticated，而响应回来时已经是管理员上下文——
-    // 于是站点导航被写进普通记录的 `recovery`（验收明令禁止的那一条）。
+test('拉取期间登录管理员不影响本地同步写入（首页与管理员会话独立）', async () => {
     let release;
     const gate = new Promise(resolve => { release = resolve; });
-    const h = makeHarness({ get: async () => { await gate; return cloudOf({ theme: 'dark', revision: 9, categories: [{ id: 'admin', name: '管理员分类', bookmarks: [] }] }); } });
-    // 本机没有未上传改动（否则会先被 `localDirty` 那条拦住，测不到上下文守卫）：
-    // 云端更新 ⇒ 正常路径会采用云端并写 recovery。
+    const h = makeHarness({ get: async () => { await gate; return { ...cloudOf({ theme: 'dark' }), revision: 9, updatedAt: 1 }; } });
     h.app.syncUploadedPayloadKey = h.app.syncPayloadKey();
-    const recordBefore = JSON.stringify(h.localStore.snapshot());
 
     const pulling = h.app.syncPullCheck();
-    // 拉取在飞期间登录管理员（真实的身份切换顺序：先处理草稿、再递增上下文代次）
-    // 只切身份（`authenticated` + 上下文代次），**不**动 `this.config`：
-    // 动它会先被「飞行期间本机又改了」那条指纹守卫拦住，测不到上下文守卫。
+    // 管理员登录只获得管理权限，不切换首页上下文，也不作废本地同步的响应。
     h.app.authenticated = true;
-    h.app.privateEpoch = (h.app.privateEpoch || 0) + 1;
     release();
     await pulling;
 
-    assert.equal(JSON.stringify(h.localStore.snapshot()), recordBefore, '记录一个字都不能被写（尤其 recovery）');
-    assert.equal(h.app.adopted, undefined, '更不能采用云端');
+    assert.equal(h.app.adopted, 9, '本地同步照常采用云端');
     assert.equal(h.app.syncConnection !== null, true, '连接本身不受影响');
 });
 
@@ -1104,22 +1090,6 @@ test('本机有未上传改动（即使 pending 为空）时也不自动采用�
     assert.ok(h.clock.pending() > 0, '应当排一次上传，走「先读后写/409 → 核对」的既有路径');
 });
 
-test('退出管理员：先协调云端、再续传、最后起轮询（顺序不可换）', async () => {
-    const order = [];
-    const h = makeHarness({
-        get: async () => { order.push('get'); return h.app.syncCloud; }
-    });
-    const originalPost = h.calls.posts.length;
-    h.app.authenticated = false;
-    h.app.syncUploadedPayloadKey = 'stale';   // 有未上传内容
-    const originalSchedule = h.app.scheduleSyncUpload.bind(h.app);
-    h.app.scheduleSyncUpload = () => { order.push('post'); return originalSchedule(); };
-    await h.app.resumeOrdinarySync();
-    assert.deepEqual(order.slice(0, 2), ['get', 'post'], `顺序必须是先读后写，实际 ${order.join('→')}`);
-    assert.ok(h.clock.intervals() > 0, '轮询接回来');
-    assert.equal(h.calls.posts.length, originalPost, '这里只排程，不立刻发');
-});
-
 test('身份未确认（identityPending）时一个同步请求都不发、也不排上传', async () => {
     const h = makeHarness();
     h.app.identityPending = true;
@@ -1131,31 +1101,31 @@ test('身份未确认（identityPending）时一个同步请求都不发、也�
     assert.equal(h.clock.pending(), 0, '不排任何上传定时器');
 });
 
-test('未决草稿（suspendedAdministrator）期间：不采用云端、不上传', async () => {
-    const h = makeHarness({ get: async () => cloudOf({ theme: 'dark', revision: 9 }) });
-    h.app.suspendedAdministrator = { config: {} };
-    await h.app.syncPullCheck();
-    assert.equal(h.calls.gets.length, 0, '连读都不发（草稿未决时普通同步整体暂停）');
-    assert.equal(h.app.adopted, undefined);
+test('管理员会话期间本地改动照常排上传', async () => {
+    const h = makeHarness();
+    h.app.authenticated = true;
+    h.app.syncUploadedPayloadKey = 'stale';
+    h.app.markSyncDirty();
+    assert.equal(h.app.syncStatus, 'syncing', '本地改动照常进入同步状态');
+    assert.ok(h.clock.pending() > 0, '排了一次上传');
+    assert.equal(h.calls.gets.length, 0, '排程阶段不发读请求');
 });
 
-test('迟到的上传确认不能落到管理员上下文里（落盘点要比上下文代次）', async () => {
-    // 与拉取那条对称：POST 在飞期间登录管理员，响应回来时不许再写记录。
+test('上传确认期间登录管理员不丢弃本地同步结果', async () => {
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     let h;
-    // 快照取在**POST 发出的那一刻**（此前 pending 与 claim 已经按「先落盘再发」写好了），
-    // 之后唯一允许写入的就是「确认成功」，而它在管理员上下文下必须被丢弃。
     let recordAtPost = null;
     h = makeHarness({ post: async () => { recordAtPost = JSON.stringify(h.localStore.snapshot()); await gate; return { success: true, revision: 4, generation: 1, updatedAt: 2 }; } });
     h.app.markSyncDirty();
     const uploading = (async () => { await h.clock.advance(1000); await flush(40); })();
     await flush(10);
     assert.ok(recordAtPost, 'POST 发出去了');
+    // 管理员登录不切换首页上下文，上传确认照常写回本地记录。
     h.app.authenticated = true;
-    h.app.privateEpoch = (h.app.privateEpoch || 0) + 1;
     release();
     await uploading;
     await flush(20);
-    assert.equal(JSON.stringify(h.localStore.snapshot()), recordAtPost, '迟到的确认不能写记录（尤其不能把 pending 当成已成功清掉）');
+    assert.notEqual(JSON.stringify(h.localStore.snapshot()), recordAtPost, '确认照常写回');
+    assert.equal(h.app.syncStatus, 'synced', '上传完成后状态为已同步');
 });

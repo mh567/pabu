@@ -32,9 +32,9 @@ test('theme switcher: failed local write restores the original configuration', a
     assert.equal(app.themeStyleSaving, false);
 });
 
-test('theme switcher: administrator saves through personal navigation', async () => {
+test('theme switcher: administrator also saves locally', async () => {
     let saved = false;
-    const app = context({ authenticated: true, async saveNavigation() { saved = this.config.themeStyle === 'classic'; return { success: true }; } });
+    const app = context({ authenticated: true, async saveLocalNavigation(config) { saved = config.themeStyle === 'classic'; return true; } });
     await switchTheme.call(app, 'classic');
     assert.ok(saved);
 });
@@ -49,10 +49,10 @@ test('theme switcher: an active draft or invalid theme is never submitted', asyn
     assert.equal(saves, 0);
 });
 
-test('theme switcher: authentication loss never restores the private configuration', async () => {
-    const publicConfig = { theme: 'auto', themeStyle: 'prism' };
-    const app = context({ authenticated: true, async saveNavigation() { this.config = publicConfig; this.authenticated = false; throw new Error('Session expired'); } });
+test('theme switcher: administrator identity does not change the save path', async () => {
+    let localSaves = 0;
+    const app = context({ authenticated: true, async saveLocalNavigation() { localSaves++; return true; } });
     await switchTheme.call(app, 'classic');
-    assert.equal(app.config, publicConfig);
+    assert.equal(localSaves, 1, '管理员登录后仍写本机导航');
     assert.equal(app.themeStyleSaving, false);
 });

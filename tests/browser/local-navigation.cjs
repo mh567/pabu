@@ -46,6 +46,8 @@ async function settings(page, { engines = false, data = false } = {}) {
     // 编辑态的「编辑」入口会收起，换成「取消 / 保存配置」，所以按可见性判断而不是按文案。
     if (await page.locator('#layoutBtn').isVisible()) await page.locator('#layoutBtn').click();
     await page.locator('#localNavigationTools').waitFor({ state: 'visible' });
+    await page.locator('#localNavigationTools').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {}))));
+    await page.waitForTimeout(120);
     if (engines && await page.locator('#localEnginesDetails').getAttribute('open') === null) await page.locator('#localEnginesDetails > summary').click();
     if (data && await page.locator('#localDataDetails').getAttribute('open') === null) await page.locator('#localDataDetails > summary').click();
 }
@@ -197,7 +199,7 @@ test('browser: storage failure reports unsaved state and keeps the previous comm
     assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
 });
 
-test('browser: delayed administrator confirmation preserves ordinary drafts and never writes site navigation locally', async t => {
+test('browser: delayed administrator confirmation never replaces local navigation', async t => {
     const fs = require('node:fs'), path = require('node:path'), bcrypt = require('bcrypt');
     const app = await installation(t);
     fs.writeFileSync(path.join(app.dir, '.admin-password.json'), JSON.stringify({ passwordHash: await bcrypt.hash('StrongPass123!', 4) }));
@@ -209,6 +211,7 @@ test('browser: delayed administrator confirmation preserves ordinary drafts and 
     await page.getByRole('button', { name: '＋ 添加分类', exact: true }).click();
     await page.locator('.ui-dialog input').fill('Ordinary kept'); await submit(page); await saved(page);
     await page.locator('#localDoneBtn').click();
+
     // Establish the real cookie from the browser so its device fingerprint matches.
     await page.evaluate(async () => {
         const response = await fetch('/api/verify-password', { method: 'POST', headers: { 'X-Admin-Password': 'StrongPass123!', 'X-Pabu-Request': '1', 'Content-Type': 'application/json' }, body: '{}' });
@@ -218,30 +221,33 @@ test('browser: delayed administrator confirmation preserves ordinary drafts and 
         const result = await fetch('/api/admin/navigation', { method: 'POST', headers: { 'X-Pabu-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ config: data.config, revision: data.revision, operationId: 'browser-admin-setup' }) });
         if (!result.ok) throw new Error('admin setup failed');
     });
+
     let release;
     const delayed = new Promise(resolve => { release = resolve; });
     await page.route('**/api/session', async route => { const response = await route.fetch(); await delayed; await route.fulfill({ response }); });
     await page.reload();
     await page.locator('#app').waitFor({ state: 'visible' });
+
+    // 管理员会话确认前后，首页始终是本机导航。
     assert.equal(await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).count(), 0);
-    await settings(page, { engines: true });
-    await engines(page, [{ id: 'ordinary', name: 'Ordinary engine', url: 'https://ordinary.example/?q=' }], 'ordinary');
+    await page.getByRole('heading', { name: 'Ordinary kept', exact: true }).waitFor();
+
+    await page.locator('#layoutBtn').click();
+    await page.getByRole('button', { name: '＋ 添加分类', exact: true }).click();
+    await page.locator('.ui-dialog input').fill('Local while admin'); await submit(page); await saved(page);
+
+    const sessionResponse = page.waitForResponse(response => response.url().endsWith('/api/session'));
     release();
-    await page.waitForFunction(() => document.querySelector('#localNavigationStatus').textContent.includes('完成当前编辑'));
-    assert.match(await page.getByLabel('引擎 1 名称', { exact: true }).inputValue(), /Ordinary engine/);
+    await sessionResponse;
     await page.locator('#localDoneBtn').click();
-    await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).waitFor();
-    assert.equal(await page.locator('#localNavigationTools').isVisible(), false);
-    await page.route('**/api/admin/navigation', route => route.abort());
-    await page.reload();
-    await page.waitForFunction(() => document.querySelector('#localNavigationStatus').textContent.includes('无法确认管理员登录'));
-    await changeTheme(page); await saved(page);
-    await page.unroute('**/api/admin/navigation');
+    await page.getByRole('heading', { name: 'Local while admin', exact: true }).waitFor();
+    assert.equal(await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).count(), 0);
+
     await page.evaluate(async () => { await fetch('/api/logout', { method: 'POST', headers: { 'X-Pabu-Request': '1', 'Content-Type': 'application/json' }, body: '{}' }); });
     await page.unroute('**/api/session');
     await page.reload();
     await page.getByRole('heading', { name: 'Ordinary kept', exact: true }).waitFor();
-    assert.equal(await page.locator('#engineName').textContent(), 'Ordinary engine');
+    await page.getByRole('heading', { name: 'Local while admin', exact: true }).waitFor();
     assert.equal(await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).count(), 0);
 });
 
@@ -334,7 +340,7 @@ test('browser: ordinary settings appear below navigation only while editing; sav
     const { page } = await setup(t);
     assert.equal(await page.locator('#localNavigationTools').isVisible(), false);
     assert.equal(await page.locator('#localNavigationStatus').isVisible(), false);
-    assert.equal(await page.locator('#appearanceBtn').isVisible(), false);
+    assert.equal(await page.locator('#appearanceBtn').isVisible(), true);
     for (const id of ['localUndoBtn', 'localExportBtn', 'localImportBtn', 'localResetBtn']) assert.equal(await page.locator('#' + id).isVisible(), false);
     await settings(page);
     assert.equal(await page.locator('#localEnginesDetails').getAttribute('open'), null);
@@ -385,7 +391,7 @@ test('browser: settings drawer keeps drafts, themed selects support keyboard and
     assert.equal(await page.locator('.ui-dialog').count(), 0);
     assert.equal(await page.locator('#localNavigationTools').isVisible(), true);
     await button.click();
-    await page.locator('#localModulesTitle').click();
+    await page.locator('#localBaseTitle').click();
     await page.waitForFunction(() => !document.querySelector('.local-select-menu:popover-open'));
     await page.locator('#localDoneBtn').click();
     await page.locator('#localNavigationTools').waitFor({ state: 'hidden' });

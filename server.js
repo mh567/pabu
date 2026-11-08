@@ -660,7 +660,7 @@ app.get('/api/config', publicReadLimit, (req, res) => {
 });
 
 app.post('/api/config', rateLimit, requireAdmin, (req, res) => {
-    res.status(409).json({ error: '站点导航请在首页编辑并保存' });
+    res.status(409).json({ error: '站点导航请在管理后台编辑并保存' });
 });
 
 app.get('/api/admin/navigation', rateLimit, requireAdmin, (req, res) => {

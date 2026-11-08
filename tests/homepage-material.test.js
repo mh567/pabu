@@ -1195,8 +1195,9 @@ test('搜索引擎编辑器不受影响：它与书签编辑器共用过 .item �
     assert.match(code, /id="enginesEditor"/, '搜索引擎编辑器容器在');
     assert.match(code, /id="addEngine"/, '「添加搜索引擎」按钮在');
     const panel = methodBody(appSource, 'renderAdminPanel');
-    assert.match(panel, /this\.bindAdminTabs\(\);\s*\n\s*this\.renderEnginesEditor\(\);/,
-        '面板初始化时紧接着渲染搜索引擎编辑器——删掉这一步面板就空着');
+    assert.match(panel, /this\.renderSiteControls\(\);/, '面板初始化时渲染站点控件');
+    const controls = methodBodyOf(appCode, 'renderSiteControls() {');
+    assert.match(controls, /this\.renderEnginesEditor\(\);/, '站点控件初始化搜索引擎编辑器');
     assert.match(appSource, /class="item-row"/, '共用的 .item-row 仍在用');
     assert.match(appSource, /class="item" data-idx=/, '共用的 .item 仍在用');
     assert.match(fullCode, /\.item-row\s*\{/, '共用的 .item-row 样式仍在');
@@ -1299,7 +1300,7 @@ function methodBodyOf(src, signature) {
     throw new Error(`${signature} 方法体未闭合`);
 }
 
-test('底栏入口顺序固定，外观只给管理员，管理入口不在一楼', () => {
+test('底栏入口顺序固定，外观和同步都是本地功能，管理入口不在一楼', () => {
     const footerStart = indexCode.indexOf('class="site-footer"');
     assert.ok(footerStart > 0, '首页仍有页面操作栏');
     const footer = indexCode.slice(footerStart, indexCode.indexOf('</footer>', footerStart));
@@ -1316,20 +1317,18 @@ test('底栏入口顺序固定，外观只给管理员，管理入口不在一�
     assert.match(appCode, /if \(this\.adminPage\) this\.openAdminPage\(\)/, '/admin 自动进入管理后台');
     assert.match(adminCode, /\.admin-page \.app \{ display: none !important; \}/, '后台页面隐藏首页内容');
 
-    // 外观入口带上 hidden，未登录就看不到，普通访客的外观在编辑区里设置。
-    const btnTag = indexCode.match(/<button[^>]*id="appearanceBtn"[^>]*>/)[0];
-    assert.match(btnTag, /\bhidden\b/, '普通外观入口默认收起，设置位于编辑区域');
-    assert.match(appCode, /syncAppearanceEntry\(!this\.authenticated\)/, '编辑状态同步时仅显示管理员外观快捷入口');
-    // 分隔符必须跟入口同显隐，否则会剩下一个悬空的「·」
-    assert.match(appCode, /if \(sep\) sep\.hidden = hidden/, '外观分隔符跟随外观入口');
+    // HTML 里保留 hidden 作为首屏兜底，运行时对所有人显示本地外观入口。
+    const entry = methodBodyOf(appCode, 'syncAppearanceEntry() {');
+    assert.match(entry, /btn\.hidden = false/, '外观入口对本地用户显示');
+    assert.match(entry, /sep\.hidden = false/, '外观分隔符跟随入口显示');
+    assert.match(appCode, /this\.syncAppearanceEntry\(\);/, '启动时同步入口状态');
 });
 
-test('管理员登录后同步入口仍保留，点击时说明服务端导航', () => {
-    const entry = methodBodyOf(appCode, 'syncAppearanceEntry(hidden) {');
+test('同步入口始终是本地导航功能，不按管理员身份分流', () => {
+    const entry = methodBodyOf(appCode, 'syncAppearanceEntry() {');
     assert.doesNotMatch(entry, /sync\.hidden/, '同步入口不能随管理员登录隐藏');
     const open = methodBodyOf(appCode, 'async openSyncDialog() {');
-    assert.match(open, /if \(this\.authenticated\)/, '管理员点击同步先给出说明');
-    assert.match(open, /当前查看的是站点导航/, '说明管理员与口令同步的区别');
+    assert.doesNotMatch(open, /this\.authenticated/, '同步对话框不再按管理员身份分流');
 });
 
 test('本机主题的键名在 index.html 与 app.js 两处一致', () => {
@@ -1388,30 +1387,12 @@ test('三态循环：自动 → 浅色 → 深色 → 自动（取模回绕）',
         '循环走共用的那格计算，不自己再算一遍');
 });
 
-test('管理员个人主题保存继续使用独立接口并在失败后还原', () => {
+test('首页外观始终写入本机导航', () => {
     const body = methodBodyOf(appCode, 'async setTheme(theme) {');
-    const guestStart = body.indexOf('if (!this.authenticated) {');
-    // 登录分支：先走登录收尾（清本机覆盖）再写服务端 —— 顺序反了的话，
-    // 本机旧值会一直压过刚写下的值。
-    const clearAt = body.indexOf('this.adoptServerTheme()');
-    const saveAt = body.indexOf("this.saveNavigation()");
-    assert.ok(clearAt > guestStart && saveAt > clearAt, '先交回服务端（清本机覆盖），再保存');
-    assert.match(body, /this\.config\.theme = previous[\s\S]*?this\.applyTheme\(\)/,
-        '保存失败要还原，不能把界面停在一个没存住的档位上');
-});
-
-test('编辑态下切换外观要先确认——它会连同未保存的草稿一起提交', () => {
-    // setTheme 的登录分支是整份 POST config，而编辑模式里有未保存的布局草稿
-    // （editSession 是深拷贝快照）。不拦一下，一个只写着「外观」的按钮
-    // 就替用户按下了「保存编辑」，而且不可逆。
-    const body = methodBodyOf(appCode, 'async setTheme(theme) {');
-    const confirmAt = body.indexOf('this.editLayout');
-    const mutateAt = body.lastIndexOf('this.config.theme = theme');
-    const saveAt = body.indexOf("this.saveNavigation()");
-    assert.ok(confirmAt > 0 && confirmAt < mutateAt && mutateAt < saveAt,
-        '确认必须排在改内存与提交之前，否则拦不住');
-    assert.match(body, /await this\.confirmAction\(/);
-    assert.match(body, /if \(!ok\) return;/, '用户取消就什么都不做');
+    assert.match(body, /this\.config\.theme = theme/, '改本机导航配置');
+    assert.match(body, /this\.saveLocalNavigation\(\)/, '写入本机 IndexedDB');
+    assert.doesNotMatch(body, /this\.saveNavigation\(|this\.authenticated/, '不写站点导航，也不按管理员身份分流');
+    assert.doesNotMatch(body, /confirmAction/, '本机外观切换不需管理员发布确认');
 });
 
 // 普通主题的 IndexedDB 失败与刷新回访由 tests/browser/local-navigation.cjs 验证。

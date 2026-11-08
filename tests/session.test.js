@@ -633,7 +633,7 @@ test('重新登录后必须复位 envChangeNotified', () => {
     // 于是「环境变化 → 看到提示 → 重新登录 → 再次环境变化」这条极常见的路径上，
     // 第二次登出**完全没有提示**，用户只看到自己被踢出去却没有任何说明。
     const code = stripComments(appSource);
-    const login = code.slice(code.indexOf('async openAdmin()'), code.indexOf('beginConfigEdit()'));
+    const login = code.slice(code.indexOf('async openAdmin()'), code.indexOf('\n        markConfigDirty() {'));
     assert.match(login, /API\.envChangeNotified = false;/,
         '重新登录成功后必须复位，否则本轮再次环境变化不会提示');
     // 复位必须发生在 authenticated = true 之后，否则旧会话的迟到响应会再置真

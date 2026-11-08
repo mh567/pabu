@@ -1116,6 +1116,15 @@
     .special-line-source-actions .btn { min-height: 44px; }
 }
 
+/* ===== 站点默认导航：后台一比一首页画布 =====
+   画布渲染真实的 .backboard / .search / .grid / .bookmark，样式全部来自 styles.css。 */
+.site-canvas { padding: 16px 0; }
+.site-canvas .backboard { margin-inline: auto; }
+.site-canvas .header { pointer-events: none; }
+@media (max-width: 899px) {
+    .site-canvas { padding: 12px 0; }
+}
+
 /* ===== 普通口令云端空间 =====
 
    访客侧的「同步」对话框与管理员侧的邀请码列表。

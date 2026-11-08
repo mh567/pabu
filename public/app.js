@@ -150,18 +150,19 @@
         // 否则一律在此解析：body stream 只能读一次，调用方再 res.json()
         // 会抛 "body stream already read"。
         async request(url, options, binary = false) {
+            const adminRequest = url.startsWith('/api/admin/') || url === '/api/session';
             if (url.startsWith('/api/admin/') && !window.app?.authenticated) throw new Error('需要管理员登录');
-            const epoch = window.app?.privateEpoch || 0;
+            const epoch = adminRequest ? (window.app?.privateEpoch || 0) : null;
             const res = await fetch(url, { credentials: 'same-origin', ...options, headers: { ...options?.headers, 'X-Pabu-Request': '1' } });
-            if (epoch !== (window.app?.privateEpoch || 0)) throw new Error('登录状态已变化');
-            if (res.status === 401 && window.app?.authenticated) {
+            if (adminRequest && epoch !== (window.app?.privateEpoch || 0)) throw new Error('登录状态已变化');
+            if (adminRequest && res.status === 401 && window.app?.authenticated) {
                 window.app.expirePrivateState();
             }
-            if (epoch !== (window.app?.privateEpoch || 0)) throw new Error('登录状态已变化');
+            if (adminRequest && epoch !== (window.app?.privateEpoch || 0)) throw new Error('登录状态已变化');
             if (binary) return { res, data: null };
             let data = null;
             try { data = await res.json(); } catch (e) {}
-            if (epoch !== (window.app?.privateEpoch || 0)) throw new Error('登录状态已变化');
+            if (adminRequest && epoch !== (window.app?.privateEpoch || 0)) throw new Error('登录状态已变化');
             // 200 的响应也可能带 env_changed（软门），所以不看状态码，只看两个信号源
             API.notifyEnvChanged(data, res.headers);
             return { res, data };
@@ -229,6 +230,11 @@
             this.configDirty = false;
             this.configSaving = false;
             this.configSnapshot = null;
+            // 站点默认导航：只在 /admin 的一比一画布里编辑，与首页本地导航完全独立。
+            this.siteConfig = null;
+            this.siteSurface = null;
+            this.siteLoaded = false;
+            this.suspendedSiteDraft = null;
             this.toastTimer = null;
             // 性能优化
             // 版本管理
@@ -327,21 +333,18 @@
             // 远程备份区块：配置缓存 + 「有没有渲染进当前这块 DOM」的闩锁。
             // 判据必须是后者。面板每次 openAdmin / 重渲染都会重建 #modalBody，
             this.editLayout = false;
-            // 编辑会话的草稿快照：进入编辑模式时对 config 存一份，
-            // 「保存并发布」才落盘，Esc/退出则整体丢弃。
-            this.editSession = null;
             // 网格上一次渲染时是否处于编辑态。显式初始化而不是靠 undefined
             // 与 false 的隐式比较：syncEditLayoutUI 靠它判断「状态真的翻转了」，
             // 而 undefined !== false 成立纯属巧合。
             this._gridEditing = false;
             // 同一帧内多次纵向重排请求合并成一个（见 requestWidgetStack）。
             // 与 _gridEditing 同理显式初始化，不靠 undefined 的隐式比较。
-            // 首页网格的编辑表面，配置来自 this.config。
+            // 首页网格的编辑表面，配置来自用户本机导航；每次变更都自动落本机。
             this.homeSurface = this.gridSurface({
                 getConfig: () => this.config,
                 isEditing: () => this.editLayout,
                 host: $('#grid'),
-                changed: () => this.markConfigDirty()
+                changed: this.saveLocalNavigation.bind(this)
             });
             this.init();
         }
@@ -359,11 +362,10 @@
         }
 
         async toggleEditLayout() {
-            if (this.suspendedAdministrator || this.themeStyleSaving) return;
+            if (this.themeStyleSaving) return;
             if (this.editLayout) return this.saveEditSession();
-            this.editSession = { config: structuredClone(this.config) };
             this.editLayout = true;
-            if (!this.authenticated) this.renderLocalSettings();
+            this.renderLocalSettings();
             this.syncEditLayoutUI();
         }
 
@@ -380,21 +382,19 @@
             const save = $('#localDoneBtn');
             if (save) {
                 save.hidden = !editing;
-                save.textContent = this.authenticated ? '保存并发布' : '保存配置';
-                save.title = this.authenticated ? '保存站点导航并退出编辑' : '保存导航设置并退出编辑';
+                save.textContent = '保存配置';
+                save.title = '保存导航设置并退出编辑';
             }
         }
 
         /**
-         * 外观入口只给管理员，它的分隔符必须跟着一起显隐，否则剩下一个悬空「·」。
-         * 同步入口始终保留：管理员登录后点击会说明服务端导航与口令同步的区别，
-         * 不再让外观顶替它的位置。
+         * 同步和外观都是本地用户功能，入口始终显示。
          */
-        syncAppearanceEntry(hidden) {
+        syncAppearanceEntry() {
             const btn = $('#appearanceBtn');
             const sep = $('#appearanceSep');
-            if (btn) btn.hidden = hidden;
-            if (sep) sep.hidden = hidden;
+            if (btn) btn.hidden = false;
+            if (sep) sep.hidden = false;
             const syncSep = $('#syncSep');
             if (syncSep) syncSep.hidden = false;
             this.markSyncEntry();
@@ -405,100 +405,65 @@
             const editing = this.editLayout;
             this.syncEditEntries();
             const tools = $('#localNavigationTools');
-            if (tools) this.setLocalSettingsVisible(!this.authenticated && editing);
+            if (tools) this.setLocalSettingsVisible(editing);
             const status = $('#localNavigationStatus');
-            if (status) status.hidden = this.authenticated || (!editing && !this.localStatusError);
+            if (status) status.hidden = !editing && !this.localStatusError;
             const engine = $('#engineBtn');
-            if (engine && !this.authenticated) {
-                engine.disabled = editing || !!this.suspendedAdministrator;
+            if (engine) {
+                engine.disabled = editing;
                 engine.title = editing ? '在下方设置默认搜索引擎' : '切换搜索引擎';
             }
-            this.syncAppearanceEntry(!this.authenticated);
+            this.syncAppearanceEntry();
             if (grid) grid.classList.toggle('is-editing', editing);
             if (grid && this._gridEditing !== editing) { this._gridEditing = editing; this.renderGrid(); }
         }
 
         async saveEditSession() {
-            if (!this.authenticated) {
-                if (this.localSettingsSaving) return;
-                this.localSettingsSaving = true;
-                $('#localSettingsForm').inert = true;
-                $('#grid').inert = true;
-                $('#engineBtn').disabled = true;
-                $('#localDoneBtn').disabled = true;
-                $('#localSettingsError').hidden = true;
-                this.setLocalStatus('正在保存到本机');
-                try {
-                    await this.localQueue;
-                    const candidate = this.localNavigationCandidate();
-                    window.NavigationSchema.validate(candidate);
-                    if (JSON.stringify(candidate) !== JSON.stringify(this.localSaved) || this.localError) {
-                        if (!await this.saveLocalNavigation(candidate) || this.authenticated) return;
-                    }
-                    this.setLocalStatus('仅保存在本机');
-                    this.config = candidate;
-                    this.applyTheme();
-                    this.render();
-                    this.localSettingsDraft = null;
-                    this.editSession = null;
-                    this.exitEditLayout();
-                    $('#layoutBtn').focus();
-                    this.showToast('导航设置已保存到本机');
-                } catch (error) {
-                    $('#localSettingsError').textContent = error.message;
-                    $('#localSettingsError').hidden = false;
-                    this.setLocalDrawerOpen(true);
-                } finally {
-                    this.localSettingsSaving = false;
-                    $('#localSettingsForm').inert = false;
-                    $('#grid').inert = false;
-                    $('#engineBtn').disabled = this.editLayout || !!this.suspendedAdministrator;
-                    $('#localDoneBtn').disabled = false;
-                    if (!$('#localSettingsError').hidden) $('#localSettingsError').focus();
-                }
-                return;
-            }
-            if (!this.editSession) { this.exitEditLayout(); return; }
+            if (this.localSettingsSaving) return;
+            this.localSettingsSaving = true;
+            $('#localSettingsForm').inert = true;
+            $('#grid').inert = true;
+            $('#engineBtn').disabled = true;
+            $('#localDoneBtn').disabled = true;
+            $('#localSettingsError').hidden = true;
+            this.setLocalStatus('正在保存到本机');
             try {
-                const res = await this.saveNavigation();
-                if (!res.success) throw new Error(res.error || '保存失败');
-            } catch (e) {
-                this.showToast(e.message + '，草稿已保留；可取消编辑后读取服务器版本', 'error', 8000);
-                return;
+                await this.localQueue;
+                const candidate = this.localNavigationCandidate();
+                window.NavigationSchema.validate(candidate);
+                if (JSON.stringify(candidate) !== JSON.stringify(this.localSaved) || this.localError) {
+                    if (!await this.saveLocalNavigation(candidate)) return;
+                }
+                this.setLocalStatus('仅保存在本机');
+                this.config = candidate;
+                this.applyTheme();
+                this.render();
+                this.localSettingsDraft = null;
+                this.exitEditLayout();
+                $('#layoutBtn').focus();
+                this.showToast('导航设置已保存到本机');
+            } catch (error) {
+                $('#localSettingsError').textContent = error.message;
+                $('#localSettingsError').hidden = false;
+                this.setLocalDrawerOpen(true);
+            } finally {
+                this.localSettingsSaving = false;
+                $('#localSettingsForm').inert = false;
+                $('#grid').inert = false;
+                $('#engineBtn').disabled = this.editLayout;
+                $('#localDoneBtn').disabled = false;
+                if (!$('#localSettingsError').hidden) $('#localSettingsError').focus();
             }
-            this.editSession = null;
-            this.exitEditLayout();
-            this.showToast('站点导航已保存并发布');
         }
 
         async cancelEditSession() {
-            if (!this.authenticated) {
-                if (this.localSettingsSaving) return;
-                if (this.localSettingsChanged() && !await this.confirmAction('放弃尚未保存的导航设置？已保存的分类与链接调整会保留。', '取消设置')) return;
-                this.localSettingsDraft = null;
-                this.editSession = null;
-                this.setLocalStatus(this.localError || '仅保存在本机', !!this.localError);
-                this.exitEditLayout();
-                $('#layoutBtn').focus();
-                this.refreshLocalNavigation();
-                return;
-            }
-            if (!this.editSession) { this.exitEditLayout(); return; }
-            if (JSON.stringify(this.config) !== JSON.stringify(this.editSession.config)) {
-                if (!await this.confirmAction('放弃本次编辑的改动？未保存的内容会丢失。', '放弃编辑', true)) return;
-            }
-            this.rollbackEditSession();
-            this.pendingNavigation = null;
-            sessionStorage.removeItem('pabu-pending-navigation');
-            this.editSession = null;
+            if (this.localSettingsSaving) return;
+            if (this.localSettingsChanged() && !await this.confirmAction('放弃尚未保存的导航设置？已保存的分类与链接调整会保留。', '取消设置')) return;
+            this.localSettingsDraft = null;
+            this.setLocalStatus(this.localError || '仅保存在本机', !!this.localError);
             this.exitEditLayout();
-            this.checkAdministratorSync();
-        }
-
-        rollbackEditSession() {
-            if (!this.editSession) return;
-            this.config = this.editSession.config;
-            this.renderGrid();
+            $('#layoutBtn').focus();
+            this.refreshLocalNavigation();
         }
 
         exitEditLayout() {
@@ -512,7 +477,7 @@
             const status = $('#localNavigationStatus');
             if (status) {
                 status.textContent = message;
-                status.hidden = this.authenticated || (!this.editLayout && !error);
+                status.hidden = !this.editLayout && !error;
                 this.localStatusError = error;
                 status.dataset.state = error ? 'error' : '';
             }
@@ -550,7 +515,6 @@
         }
 
         saveLocalNavigation(config = this.config, undo = false) {
-            if (this.authenticated || this.siteNavigationLoaded || this.suspendedAdministrator) return Promise.resolve(false);
             const candidate = window.NavigationSchema.publicConfig(structuredClone(config));
             this.localPending++;
             this.setLocalStatus('正在保存到本机');
@@ -561,9 +525,9 @@
                     this.localRevision = record.revision;
                     this.localSaved = structuredClone(record.config);
                     this.localError = null;
-                    if (undo && !this.authenticated) { this.config = structuredClone(record.config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
+                    if (undo) { this.config = structuredClone(record.config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
                     this.localChannel?.postMessage(record.revision);
-                    if (!this.authenticated) this.setLocalStatus('仅保存在本机');
+                    this.setLocalStatus('仅保存在本机');
                     // 同步的唯一触发点：**本地真的落盘之后**才排上传。
                     // 挂在编辑动作里会散成很多处，且会在没保存成功时就发出去。
                     this.markSyncDirty();
@@ -581,10 +545,10 @@
         }
 
         async refreshLocalNavigation(adopt = false) {
-            if (this.authenticated || this.siteNavigationLoaded || this.localPending) return;
+            if (this.localPending) return;
             try {
                 const record = await this.localStore.read();
-                if (this.authenticated || this.siteNavigationLoaded || this.localPending || !record || record.revision === this.localRevision) return;
+                if (this.localPending || !record || record.revision === this.localRevision) return;
                 if (!adopt && (this.editLayout || $('.ui-dialog-overlay') || this.localError)) {
                     this.setLocalStatus('其他标签页已修改导航，当前输入已保留。请先导出或采用其他标签页版本。', true);
                     $('#localAdoptBtn').hidden = false;
@@ -609,7 +573,7 @@
         }
 
         async importLocalNavigation(file) {
-            if (!file || this.authenticated) return;
+            if (!file) return;
             const revision = this.localRevision;
             try {
                 if (file.size > 1024 * 1024) throw new Error('配置超过 1 MiB');
@@ -619,20 +583,19 @@
                 if (Array.isArray(config?.searchEngines) && config.searchEngines.length && !config.searchEngines.some(e => e.id === config.searchEngine)) config.searchEngine = config.searchEngines[0].id;
                 window.NavigationSchema.validate(config);
                 if (!await this.confirmAction('导入将替换本机导航，可通过撤销恢复上一份配置。', '导入导航')) return;
-                if (this.authenticated || this.localRevision !== revision) throw new Error('导航状态已变化，请重新导入');
-                if (await this.saveLocalNavigation(config) && !this.authenticated) { this.config = structuredClone(config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
+                if (this.localRevision !== revision) throw new Error('导航状态已变化，请重新导入');
+                if (await this.saveLocalNavigation(config)) { this.config = structuredClone(config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
             } catch (error) { this.showToast('导入失败：' + error.message, 'error'); }
         }
 
         async resetLocalNavigation() {
-            if (this.authenticated) return;
             const revision = this.localRevision;
             try {
                 const config = await API.get('/api/config');
                 window.NavigationSchema.validate(config);
                 if (!await this.confirmAction('用当前站点导航替换本机导航及未保存设置？可通过撤销恢复。', '重置导航')) return;
-                if (this.authenticated || this.localRevision !== revision) throw new Error('导航状态已变化，请重新重置');
-                if (await this.saveLocalNavigation(config) && !this.authenticated) { this.config = structuredClone(config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
+                if (this.localRevision !== revision) throw new Error('导航状态已变化，请重新重置');
+                if (await this.saveLocalNavigation(config)) { this.config = structuredClone(config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
             } catch (error) { this.showToast('重置失败，原导航已保留：' + error.message, 'error'); }
         }
 
@@ -1432,21 +1395,10 @@
          *
          * ⚠️ 界面**必须临开临建、关掉就删**，不能像页脚按钮那样常驻一个 hidden 节点。
          * `.ui-dialog-overlay` 在本文件里是「现在有没有对话框开着」的判据（阻止关闭
-         * 页面、管理员登录前等用户结束编辑都用它查），放一个隐藏的常驻节点进去会
-         * 让那些判据**恒真**——实测症状是「密码输对了，管理面板永远打不开」
-         * （`finishLocalDraft` 在里面死等一个不会到来的循环）。这正是
-         * `showUiDialog` 自己也临建临删的原因。
+         * 页面、启动流程等都用它查），放一个隐藏的常驻节点进去会让那些判据**恒真**。
+         * 这正是 `showUiDialog` 自己也临建临删的原因。
          */
         async openSyncDialog() {
-            if (this.authenticated) {
-                await this.showUiDialog({
-                    title: '同步',
-                    message: '当前查看的是站点导航，由管理员统一维护。口令同步用于访客本地导航；如需使用，请先退出管理员登录。',
-                    notice: true,
-                    confirmText: '知道了'
-                });
-                return;
-            }
             if (this.syncDialogEl) return;
             const overlay = html(`
                 <div class="ui-dialog-overlay" id="syncDialog" data-action="close">
@@ -1977,7 +1929,7 @@
         }
 
         scheduleSyncRetry() {
-            if (!this.syncConnection || this.authenticated) return;
+            if (!this.syncConnection) return;
             const wait = this.syncBackoffNext();
             clearTimeout(this.syncRetryTimer);
             this.syncRetryTimer = setTimeout(() => this.startSyncUpload(), wait);
@@ -2116,7 +2068,7 @@
          * 一次上传。所有分支都在这里，别在别处再发 `/api/sync/config`。
          */
         async uploadOnce() {
-            if (!this.syncConnection || this.authenticated || this.syncStatus === 'conflict') return;
+            if (!this.syncConnection || this.syncStatus === 'conflict') return;
             // 删除/停用期间绝不发上传：它是真正发请求的那一处，排程那一层的挡板
             // 挡不住「删除开始时已经排好但还没跑」的那一轮。
             if (this.syncDeleting || this.syncHalted) return;
@@ -2669,7 +2621,7 @@
          */
         startSyncPolling(intervalMs = SYNC_POLL_MS) {
             this.stopSyncPolling();
-            if (!this.syncConnection || this.authenticated) return;
+            if (!this.syncConnection) return;
             this.syncPollMs = intervalMs;
             this.syncPollTimer = setInterval(() => { if (!document.hidden) this.syncPullCheck(); }, intervalMs);
         }
@@ -2686,70 +2638,22 @@
         }
 
         /**
-         * 管理员会话生效期间暂停普通同步调度（设计 §5：管理员上下文暂停普通同步）。
-         * 只停调度——凭据、本地数据一个字都不动；配置隔离与身份切换归 #11。
-         * 所有入口本身也都带 `this.authenticated` 判断，这一层是让定时器**停下来**，
-         * 否则管理员在编辑站点导航时，访客空间那边还在按 30 秒打接口。
-         */
-        pauseSyncForAdmin() { this.stopSyncTimers(); }
-
-        /**
-         * 普通同步能不能跑：不是管理员上下文、没有未决草稿、身份已确认。
-         *
-         * ⚠️ 这是**唯一**判据。只在入口判 `authenticated` 不够——本仓库踩过：
-         * 入口判了、**落盘点**没判，于是站点导航会被写进普通同步记录的
-         * `recovery`（验收明令禁止的「站点导航落入普通存储」）。
+         * 普通同步能不能跑：身份探测已落定即可。管理员会话不再切换首页上下文，
+         * 因此本地同步与是否登录管理后台无关。
          */
         canRunOrdinarySync() {
-            return !this.authenticated && !this.suspendedAdministrator && !this.identityPending;
+            return !this.identityPending;
         }
 
-        /**
-         * 等会话探测落定。探测**失败**时不解除 `identityPending`：确认不了身份
-         * 就等于「同步继续暂停」，等 `checkAdministratorSync` 成功确认再放开。
-         */
-        async waitForSession() {
-            const probe = this.sessionProbe;
-            if (!probe) return;
-            try { await probe; } catch (error) { console.warn('会话探测失败，普通同步保持暂停:', error.message); }
-        }
-
-        /** 在飞请求的上下文快照：连接代次（落盘、跨标签页）+ 本标签页上下文代次。 */
+        /** 在飞请求的上下文快照：只认连接代次。管理员登录不再切换首页上下文。 */
         syncContextSnapshot() {
-            return { conn: this.syncConnEpoch, home: this.privateEpoch || 0 };
+            return { conn: this.syncConnEpoch };
         }
 
-        /** 落盘点：两个代次都没变、且上下文仍然允许跑普通同步，才许写。 */
+        /** 落盘点：连接代次没变，且上下文仍然允许跑普通同步，才许写。 */
         syncContextHeld(snap) {
-            return snap.conn === this.syncConnEpoch
-                && snap.home === (this.privateEpoch || 0)
-                && this.canRunOrdinarySync();
+            return snap.conn === this.syncConnEpoch && this.canRunOrdinarySync();
         }
-
-        /**
-         * 回到普通上下文：**先协调云端、再续传、最后起轮询**。
-         *
-         * 顺序不能换：先排上传再读云端，会对着一个已被别的设备推进过的基线白打一轮；
-         * 而「有未上传改动就不采用云端」只在读之前成立（读之后由 409 → 核对 → 冲突
-         * 三条既有分支收敛）。
-         */
-        resumeOrdinarySync() {
-            if (!this.syncConnection || !this.canRunOrdinarySync()) {
-                if (!this.syncConnection) this.setSyncStatus('local');
-                return Promise.resolve();
-            }
-            return this.syncPullCheck()
-                .then(() => {
-                    if (!this.canRunOrdinarySync()) return;
-                    if (this.syncStatus === 'conflict') return;
-                    if (this.syncPending || this.syncUploadedPayloadKey !== this.syncPayloadKey()) this.scheduleSyncUpload();
-                    this.startSyncPolling();
-                })
-                .catch(error => console.warn('恢复普通同步失败:', error.message));
-        }
-
-        /** 旧名字保留为转发：调用点不动，实现只有一份。 */
-        resumeSyncAfterAdmin() { this.resumeOrdinarySync(); }
 
         // ---- 三个触发点的**函数体**单独抽出来（监听器只是转发）--------------
         // 抽出来的理由是可验证：内联箭头函数没法被用例执行，于是「恢复可见会取消
@@ -2922,7 +2826,13 @@
                         const options = [...menu.children];
                         options.forEach((option, i) => option.classList.toggle('is-active', i === index));
                         button.setAttribute('aria-activedescendant', options[index]?.id || '');
-                        options[index]?.scrollIntoView({ block: 'nearest' });
+                        const option = options[index];
+                        if (option) {
+                            const top = option.offsetTop;
+                            const bottom = top + option.offsetHeight;
+                            if (top < menu.scrollTop) menu.scrollTop = top;
+                            else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
+                        }
                     };
                     const open = () => {
                         this.closeLocalSelects();
@@ -2936,6 +2846,7 @@
                         menu.style.maxHeight = `${Math.max(44, Math.min(272, upward ? above - 8 : below - 8))}px`;
                         menu.style.top = upward ? 'auto' : `${rect.bottom + 6}px`;
                         menu.style.bottom = upward ? `${innerHeight - rect.top + 6}px` : 'auto';
+                        menu.dataset.openedAt = String(performance.now());
                         menu.showPopover();
                         highlight(select.selectedIndex);
                     };
@@ -3087,7 +2998,12 @@
             this.setLocalStatus(this.localError || '仅保存在本机', !!this.localError);
             window.addEventListener('resize', () => this.closeLocalSelects());
             window.addEventListener('scroll', event => {
-                if (!event.target.closest?.('.local-select-menu')) this.closeLocalSelects();
+                if (!event.target.closest?.('.local-select-menu')) {
+                    const openMenu = document.querySelector('.local-select-menu:popover-open');
+                    // 打开菜单时的焦点/布局滚动会以 document 为目标冒泡到这里，不能把它当成用户滚动。
+                    if (openMenu && performance.now() - Number(openMenu.dataset.openedAt || 0) < 300) return;
+                    this.closeLocalSelects();
+                }
             }, { capture: true, passive: true });
             $('#localSettingsToggle').onclick = () => this.setLocalDrawerOpen($('#localNavigationTools').dataset.open !== 'true');
             $('#localSettingsForm').addEventListener('change', () => this.syncLocalSelects());
@@ -3104,7 +3020,7 @@
             $('#localAdoptBtn').onclick = async () => {
                 if (await this.confirmAction('放弃当前草稿并采用其他标签页已保存的版本？', '采用已保存版本')) {
                     this.localSettingsDraft = null;
-                    this.editSession = null; this.exitEditLayout();
+                    this.exitEditLayout();
                     await this.refreshLocalNavigation(true);
                 }
             };
@@ -3113,24 +3029,10 @@
                 this.localChannel.onmessage = () => this.refreshLocalNavigation();
             }
             window.addEventListener('beforeunload', event => {
-                if (!this.authenticated && (this.localPending || this.localError || this.localSettingsChanged() || $('.ui-dialog-overlay input, .ui-dialog-overlay textarea'))) { event.preventDefault(); event.returnValue = ''; }
+                if (this.localPending || this.localError || this.localSettingsChanged() || $('.ui-dialog-overlay input, .ui-dialog-overlay textarea')) { event.preventDefault(); event.returnValue = ''; }
             });
             window.addEventListener('focus', () => this.refreshLocalNavigation());
             window.addEventListener('online', () => this.checkAdministratorSync());
-        }
-
-        async finishLocalDraft() {
-            if (this.editLayout || $('.ui-dialog-overlay')) this.setLocalStatus('站点导航会话已确认，请完成当前编辑后切换站点导航');
-            while (this.editLayout || $('.ui-dialog-overlay')) await new Promise(resolve => setTimeout(resolve, 100));
-            await this.localQueue;
-        }
-
-        /** 从后台跳到首页后自动进入编辑，只在管理员会话确认后生效。 */
-        maybeAutoEdit() {
-            const params = new URLSearchParams(location.search);
-            if (!params.has('edit')) return;
-            history.replaceState(null, '', location.pathname);
-            if (this.authenticated && !this.editLayout) this.toggleEditLayout();
         }
 
         async init() {
@@ -3150,7 +3052,7 @@
                 }
                 requestAnimationFrame(() => {
                     if (this.adminPage) this.openAdminPage();
-                    else this.restoreSession().then(() => this.maybeAutoEdit());
+                    else this.restoreSession();
                     this.loadSyncState();
                 });
                 const register = () => navigator.serviceWorker?.register('/sw.js').catch(error => console.warn('Service worker registration failed:', error));
@@ -3178,11 +3080,7 @@
 
         /**
          * 当前生效的外观。优先级：本会话内存覆盖 → 本机 localStorage →
-         * 服务端站点主题 → auto。
-         *
-         * 第一级只在 localStorage 写不进去时才有值（见 setTheme）；
-         * 第二级在登录成功时会被清掉（见 adoptServerTheme），所以已登录
-         * 时读到的一定是服务端值，两处不会各说各话。
+         * 本机导航配置 → auto。管理员会话不改变首页外观。
          */
         resolveTheme() {
             if (APPEARANCE_ORDER.includes(this.themeOverride)) return this.themeOverride;
@@ -3197,7 +3095,7 @@
             const host = $('#homeThemeSwitcher');
             if (!host || !this.config) return;
             const style = window.NavigationSchema.appearance(this.config).style;
-            const disabled = this.editLayout || this.themeStyleSaving || !!this.suspendedAdministrator;
+            const disabled = this.editLayout || this.themeStyleSaving;
             host.setAttribute('aria-busy', String(!!this.themeStyleSaving));
             if (!host.children.length) host.innerHTML = Object.entries(window.NavigationSchema.THEMES).map(([id, item]) =>
                 `<button type="button" data-home-theme="${id}" aria-label="${this.esc(item.name)}主题">${this.esc(item.name)}</button>`).join('');
@@ -3212,7 +3110,7 @@
         }
 
         async setThemeStyle(style) {
-            if (!Object.hasOwn(window.NavigationSchema.THEMES, style) || this.themeStyleSaving || this.editLayout || this.suspendedAdministrator) return;
+            if (!Object.hasOwn(window.NavigationSchema.THEMES, style) || this.themeStyleSaving || this.editLayout) return;
             if (window.NavigationSchema.appearance(this.config).style === style) return;
             const previous = this.config;
             const candidate = { ...previous, themeStyle: style };
@@ -3220,12 +3118,8 @@
             this.config = candidate;
             this.applyTheme();
             try {
-                if (this.authenticated) {
-                    const result = await this.saveNavigation();
-                    if (!result.success) throw new Error(result.error || '主题保存失败');
-                } else if (!await this.saveLocalNavigation(candidate)) throw new Error('主题未能保存到本机');
+                if (!await this.saveLocalNavigation(candidate)) throw new Error('主题未能保存到本机');
             } catch (error) {
-                // 身份变化后不把旧配置重新带回当前首页。
                 if (this.config === candidate) {
                     this.config = previous;
                     this.applyTheme();
@@ -3284,73 +3178,21 @@
             btn.setAttribute('aria-label', label);
         }
 
-        /**
-         * 登录态确立时的统一收尾：外观交回服务端那份。
-         * 未登录访客的选择存在本机，登录后必须让位——否则本机旧值会一直
-         * 压过站点主题（这正是 resolveTheme 那条优先级成立的前提）。
-         * 每一处把 authenticated 置为 true 的地方都要调它；
-         * tests/api-boundary.test.js 里有枚举断言钉住。
-         */
-        adoptServerTheme() {
-            this.themeOverride = null;
-            try {
-                localStorage.removeItem(THEME_STORAGE_KEY);
-            } catch (e) {}
-            this.applyTheme();
-        }
-
         async cycleTheme() {
             if (window.NavigationSchema.THEMES[window.NavigationSchema.appearance(this.config).style].mode) {
-                await this.openAdmin();
-                $('#adminTabSite')?.click();
-                $('#themeStyleSelect')?.focus();
+                this.showToast('当前视觉主题固定明暗模式，可在编辑设置中切换视觉主题');
                 return;
             }
             return this.setTheme(nextTheme(this.resolveTheme()));
         }
 
-        /**
-         * 首页的「外观」按钮。未登录访客只能改本机——写站点主题要管理员，
-         * 写 localStorage 不需要；登录后点它就等同于改站点主题，
-         * 与后台「主题模式」下拉框是同一份状态。
-         */
+        /** 首页外观只改本机导航，管理员会话不改变这条路径。 */
         async setTheme(theme) {
-            if (!this.authenticated) {
-                this.config.theme = theme;
-                this.themeOverride = null;
-                try { localStorage.removeItem(THEME_STORAGE_KEY); } catch (e) {}
-                this.applyTheme();
-                await this.saveLocalNavigation();
-                return;
-            }
-
-            // 登录态下这次调用会**整份**提交 config，等于替用户按下「保存并发布」：
-            // 编辑中未保存的布局草稿会一起写进服务器，而按下的那个按钮只说
-            // 「外观」。不可逆的动作不能藏在一个附带控件后面，所以先问一句。
-            if (this.editLayout) {
-                const ok = await this.confirmAction(
-                    '正在编辑首页导航，切换外观会连同未保存的改动一起保存到服务器。',
-                    '保存并切换'
-                );
-                if (!ok) return;
-            }
-
-            const previous = this.config.theme;
             this.config.theme = theme;
-            // 复用登录收尾：清本机覆盖 + 应用外观（removeItem 只此一处）
-            this.adoptServerTheme();
-            // 管理面板若开着，让下拉框跟上——两处是同一份状态
-            const select = $('#themeModeSelect');
-            if (select) select.value = theme;
-            try {
-                const res = await this.saveNavigation();
-                if (!res.success) throw new Error(res.error || '保存失败');
-            } catch (e) {
-                this.config.theme = previous;
-                this.applyTheme();
-                if (select) select.value = previous;
-                this.showToast('外观保存失败，已还原', 'error');
-            }
+            this.themeOverride = null;
+            try { localStorage.removeItem(THEME_STORAGE_KEY); } catch (e) {}
+            this.applyTheme();
+            await this.saveLocalNavigation();
         }
 
         render() {
@@ -3393,7 +3235,7 @@
                     getConfig: () => this.config,
                     isEditing: () => this.editLayout,
                     host: $('#grid'),
-                    changed: () => this.markConfigDirty()
+                    changed: this.saveLocalNavigation.bind(this)
                 });
             }
             return this.homeSurface;
@@ -3512,6 +3354,7 @@
             $('#helpBtn').onclick = () => this.showHelp();
             $('#layoutBtn').onclick = () => this.toggleEditLayout();
             $('#appearanceBtn').onclick = () => this.cycleTheme();
+            this.syncAppearanceEntry();
             $('#homeThemeSwitcher').onclick = event => {
                 const button = event.target.closest('[data-home-theme]');
                 if (button && !button.disabled) this.setThemeStyle(button.dataset.homeTheme);
@@ -3542,7 +3385,7 @@
                 const option = event.target.closest('.engine-option');
                 if (!option) return;
                 this.config.searchEngine = option.dataset.id;
-                if (!this.authenticated) this.saveLocalNavigation();
+                this.saveLocalNavigation();
                 this.renderEngines(); dropdown.hidden = true; engineBtn.setAttribute('aria-expanded', 'false'); input.focus();
             };
             document.onclick = event => {
@@ -4066,7 +3909,8 @@
             this.renderGrid(surface);
             surface.changed();
             // 提示语要指向真正能提交这次改动的那颗按钮。
-            if (this.authenticated) this.showToast('导航已添加，点「保存并发布」生效');
+            if (surface === this.siteSurface) this.showToast('导航已添加，点右上角「保存并发布」生效');
+            else this.showToast('导航已添加，回到编辑栏点「保存配置」生效');
         }
 
         async editHomeBookmark(catIdx, bmIdx, surface = this.homeSurface) {
@@ -4155,85 +3999,81 @@
         }
 
         hasAdministratorDraft() {
-            return this.editLayout || this.configDirty || this.navigationSaving || this.pendingNavigation || !!$('.ui-dialog-overlay');
+            return this.configDirty || this.navigationSaving || !!this.pendingNavigation || !!$('.ui-dialog-overlay');
         }
 
         async checkAdministratorSync() {
-            if (this.administratorChecking || this.suspendedAdministrator) return;
+            if (this.administratorChecking) return;
             this.administratorChecking = true;
-            const epoch = this.privateEpoch || 0;
             try {
                 const session = await this.loadSession();
-                if (epoch !== (this.privateEpoch || 0)) return;
                 if (!session.authenticated) {
-                    if (this.authenticated) this.expirePrivateState();
+                    if (this.authenticated) await this.expirePrivateState();
                     return;
                 }
                 if (!this.authenticated) { await this.restoreSession(); return; }
+                if (!this.siteLoaded || !this.authenticated) return;
                 const navigation = await API.get('/api/admin/navigation');
-                if (!this.authenticated || epoch !== (this.privateEpoch || 0)) return;
-                if (this.hasAdministratorDraft() || !$('#modal').hidden) {
-                    if (navigation.revision !== this.navigationRevision) this.showToast('站点导航已更新，当前草稿已保留；完成或取消编辑后协调版本', 'error', 8000);
-                    return;
-                }
+                if (!this.authenticated) return;
                 if (navigation.revision !== this.navigationRevision) {
-                    this.config = navigation.config;
+                    if (this.hasAdministratorDraft()) {
+                        this.showToast('站点导航已被其他管理员更新，当前草稿已保留', 'error', 8000);
+                        return;
+                    }
+                    this.siteConfig = structuredClone(navigation.config);
                     this.navigationRevision = navigation.revision;
-                    this.adoptServerTheme();
-                    this.render();
+                    this.configSnapshot = JSON.stringify(this.siteConfig);
+                    this.configDirty = false;
+                    if (this.siteSurface) this.renderSiteEditor();
                 }
             } catch (e) {
                 if (this.authenticated) this.showToast('暂时无法同步，联网后重试', 'error');
             } finally { this.administratorChecking = false; }
         }
 
+        resetSiteEditorState(keepDraft = null) {
+            this.siteLoaded = false;
+            this.siteConfig = null;
+            this.siteSurface = null;
+            this.suspendedSiteDraft = keepDraft;
+            this.configDirty = false;
+            this.configSnapshot = null;
+            this.pendingNavigation = null;
+        }
+
         async expirePrivateState() {
             if (!this.authenticated) return;
-            const draft = this.hasAdministratorDraft() ? {
-                config: structuredClone(this.config), revision: this.navigationRevision,
-                editSession: this.editSession, configSnapshot: this.configSnapshot,
-                pendingNavigation: this.pendingNavigation
+            const keep = this.siteDirty() ? {
+                config: structuredClone(this.siteConfig),
+                revision: this.navigationRevision,
+                snapshot: this.configSnapshot,
+                pending: this.pendingNavigation
             } : null;
-            this.clearPrivateState();
-            if (!draft) { this.showToast('登录已失效，请重新登录', 'error'); return; }
-            this.suspendedAdministrator = draft;
-            $('#appearanceBtn').disabled = true;
-            $('#engineBtn').disabled = true;
-            $('#localNavigationTools').hidden = true;
-            // 三条编辑入口一起收起：此刻页面已被清空，任何一条留着都会指向不存在的内容。
-            $('#layoutBtn').hidden = true;
-            $('#localCancelBtn').hidden = true;
-            $('#localDoneBtn').hidden = true;
-            const login = await this.showUiDialog({ title: '登录已失效', message: '站点导航已隐藏，未保存草稿仅保留在当前标签页。重新登录后恢复草稿，或放弃草稿恢复本地导航。', confirmText: '重新登录', cancelText: '放弃草稿' });
-            if (login) await this.openAdmin();
-            if (!this.authenticated && this.suspendedAdministrator) {
-                const discard = await this.confirmAction('放弃站点导航草稿并恢复本地导航？', '放弃草稿', true);
-                if (discard) this.suspendedAdministrator = null;
-            }
-            if (!this.suspendedAdministrator) {
-                $('#appearanceBtn').disabled = false;
-                $('#engineBtn').disabled = false;
-                $('#localNavigationTools').hidden = true;
-                this.syncEditEntries();
+            this.authenticated = false;
+            this.sessionTrusted = false;
+            this.privateEpoch = (this.privateEpoch || 0) + 1;
+            this.resetSiteEditorState(keep);
+            this.applyTheme();
+            $('#modal').hidden = true;
+            if (this.adminPage) {
+                const login = await this.showUiDialog({ title: '登录已失效', message: keep ? '站点导航草稿仅保留在当前标签页，重新登录后继续编辑。' : '请重新登录管理后台。', confirmText: '重新登录', cancelText: '关闭' });
+                if (login) await this.openAdmin();
+                else { this.suspendedSiteDraft = null; location.href = '/'; }
+            } else {
+                this.showToast('管理员登录已失效', 'error');
             }
         }
 
-        clearPrivateState({ preservePending = false } = {}) {
+        clearPrivateState() {
             this.authenticated = false;
-            this.resumeOrdinarySync().catch(error => console.warn('恢复普通同步失败:', error.message));
-            $('#localNavigationTools').hidden = true;
-            $('#localNavigationStatus').hidden = !this.localError;
-            this.syncAppearanceEntry(true);
-            this.localSettingsDraft = null;
-            if (this.localNavigationBeforeAdmin) {
-                this.config = structuredClone(this.localNavigationBeforeAdmin); this.localNavigationBeforeAdmin = null;
-                this.applyTheme(); this.render();
-            }
-            this.editSession = null; this.configDirty = false; this.configSnapshot = null;
-            this.siteNavigationLoaded = false; this.navigationRevision = null; this.pendingNavigation = null;
-            if (!preservePending) sessionStorage.removeItem('pabu-pending-navigation');
-            this.sessionTrusted = false; this.privateEpoch = (this.privateEpoch || 0) + 1;
-            $('#modeBtn').hidden = true; $('#modal').hidden = true;
+            this.sessionTrusted = false;
+            this.privateEpoch = (this.privateEpoch || 0) + 1;
+            this.resetSiteEditorState();
+            this.applyTheme();
+            this.navigationSaving = false;
+            this.configSaving = false;
+            sessionStorage.removeItem('pabu-pending-site');
+            $('#modal').hidden = true;
             $('.admin-panels')?.replaceChildren(); $$('.ui-dialog-overlay').forEach(el => el.remove());
         }
 
@@ -4241,28 +4081,22 @@
             return API.get('/api/session');
         }
 
-        // 首屏内容先显示，再异步确认管理员会话。
+        // 管理员会话只影响 /admin 的可用性，不改变首页本地导航。
         async restoreSession() {
             this.identityPending = true;
-            const epoch = this.privateEpoch || 0;
             try {
                 const session = await (this.initialSession || this.loadSession());
                 this.initialSession = null;
-                if (epoch !== (this.privateEpoch || 0) || this.suspendedAdministrator) return false;
-                if (session.authenticated && !this.authenticated) {
-                    await this.finishLocalDraft();
-                    this.privateEpoch = (this.privateEpoch || 0) + 1;
+                if (session.authenticated) {
                     this.authenticated = true;
-                    this.pauseSyncForAdmin();
-                    await this.loadSiteNavigation();
-                    this.adoptServerTheme();
                     this.sessionTrusted = !!session.trusted;
-                } else if (!session.authenticated && this.authenticated) this.clearPrivateState();
+                } else if (this.authenticated) {
+                    this.clearPrivateState();
+                }
                 return !!session.authenticated;
             } catch (e) {
                 console.error('Restore session failed:', e);
-                if (this.authenticated && !this.siteNavigationLoaded) this.clearPrivateState({ preservePending: true });
-                this.setLocalStatus('无法确认管理员登录，可继续使用本地导航，网络恢复后重新确认', true);
+                this.setLocalStatus('无法确认管理员登录，本地导航仍可使用，网络恢复后重新确认', true);
                 return false;
             } finally {
                 this.identityPending = false;
@@ -4271,9 +4105,8 @@
         }
 
         async waitForSession() {
-            if (this.authenticated) return true;
-            if (!this.sessionProbe) return false;
-            return this.sessionProbe;
+            if (!this.sessionProbe) return;
+            try { await this.sessionProbe; } catch (error) { console.warn('会话探测失败:', error.message); }
         }
 
         /**
@@ -4313,64 +4146,138 @@
         }
 
         // 站点导航由管理员统一维护。读取时带上 revision，保存即发布。
-        async loadSiteNavigation() {
-            const epoch = this.privateEpoch || 0;
-            const pending = sessionStorage.getItem('pabu-pending-navigation');
-            if (pending) {
-                const result = await API.post('/api/admin/navigation', JSON.parse(pending));
-                if (!result.success && !result.error) throw new Error('保存结果尚未确认，请刷新后重试');
-                if (!result.success) {
-                    sessionStorage.removeItem('pabu-pending-navigation');
-                    const keep = await this.showUiDialog({ title: '上次保存未确认', message: (result.error || '保存失败') + '。可保留待确认内容继续编辑，下一次保存将覆盖当前服务器配置；也可采用服务器版本。', confirmText: '保留草稿继续编辑', cancelText: '采用服务器版本' });
-                    if (keep) this.recoveredNavigationDraft = JSON.parse(pending).config;
-                }
-                sessionStorage.removeItem('pabu-pending-navigation');
-            }
-            const data = await API.get('/api/admin/navigation');
-            if (!this.authenticated || epoch !== (this.privateEpoch || 0)) throw new Error('登录状态已变化');
-            if (!this.siteNavigationLoaded) this.localNavigationBeforeAdmin = structuredClone(this.config);
-            this.config = this.recoveredNavigationDraft || data.config;
-            this.recoveredNavigationDraft = null;
-            this.navigationRevision = data.revision;
-            if (this.suspendedAdministrator) {
-                const draft = this.suspendedAdministrator;
-                this.config = draft.config;
-                this.navigationRevision = draft.revision;
-                this.editSession = draft.editSession || { config: data.config };
-                this.editLayout = true;
-                this.pendingNavigation = draft.pendingNavigation;
-                this.suspendedAdministrator = null;
-                this.showToast('站点导航草稿已恢复，保存时将校验原始版本');
-            }
-            this.siteNavigationLoaded = true;
-            $('#appearanceBtn').disabled = false;
-            $('#engineBtn').disabled = false;
-            $('#localNavigationTools').hidden = true;
-            $('#localNavigationStatus').hidden = true;
-            this.syncAppearanceEntry(false);
-            this.migrateConfig();
-            this.adoptServerTheme();
-            this.render();
+        siteDirty() {
+            return this.configSnapshot !== null && !!this.siteConfig
+                && JSON.stringify(this.siteConfig) !== this.configSnapshot;
         }
 
-        async saveNavigation(options = {}) {
-            if (!this.siteNavigationLoaded) throw new Error('站点导航未加载，请刷新后重试');
-            const content = JSON.stringify(this.config);
+        /** 读取站点默认导航。它只服务 /admin 的一比一画布，不碰首页本地导航。 */
+        async loadSiteEditor() {
+            const retry = sessionStorage.getItem('pabu-pending-site');
+            if (retry) {
+                const request = JSON.parse(retry);
+                try {
+                    const result = await API.post('/api/admin/navigation', request.body);
+                    if (!result.success) throw new Error(result.error || '上次保存结果尚未确认');
+                } catch (error) {
+                    this.showToast('上次站点导航保存未确认：' + error.message, 'error', 8000);
+                }
+                sessionStorage.removeItem('pabu-pending-site');
+            }
+
+            if (this.suspendedSiteDraft) {
+                const draft = this.suspendedSiteDraft;
+                this.suspendedSiteDraft = null;
+                this.siteConfig = draft.config;
+                this.navigationRevision = draft.revision;
+                this.pendingNavigation = draft.pending;
+                this.siteLoaded = true;
+                this.configSnapshot = draft.snapshot;
+                this.configDirty = this.siteDirty();
+                this.showToast('站点导航草稿已恢复');
+                return;
+            }
+
+            const data = await API.get('/api/admin/navigation');
+            if (!this.authenticated) throw new Error('登录状态已变化');
+            this.siteConfig = structuredClone(data.config);
+            this.navigationRevision = data.revision;
+            this.pendingNavigation = null;
+            this.siteLoaded = true;
+            this.configSnapshot = JSON.stringify(this.siteConfig);
+            this.configDirty = false;
+        }
+
+        mountSiteEditor() {
+            const grid = $('#siteGrid');
+            if (!grid || !this.siteConfig) return;
+            this.siteSurface = this.gridSurface({
+                getConfig: () => this.siteConfig,
+                isEditing: () => true,
+                host: grid,
+                changed: () => this.markConfigDirty()
+            });
+            this.bindGridEdit(this.siteSurface);
+            this.bindBookmarkPress(grid);
+            this.renderSiteEditor();
+        }
+
+        renderSiteHeader() {
+            const header = $('#siteHeader');
+            if (!header || !this.siteConfig) return;
+            const engine = this.siteConfig.searchEngines.find(e => e.id === this.siteConfig.searchEngine) || this.siteConfig.searchEngines[0];
+            header.innerHTML = `<div class="search-wrapper"><div class="search" role="presentation">
+                <span class="search-engine" aria-hidden="true"><span class="engine-name">${this.esc(engine ? engine.name : '')}</span><svg class="engine-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
+                <textarea class="search-input" rows="1" readonly tabindex="-1" aria-hidden="true" placeholder="搜索网页"></textarea>
+                <span class="search-btn" aria-hidden="true">搜索</span>
+            </div></div>`;
+        }
+
+        applySitePreviewTheme() {
+            if (!this.siteConfig) return;
+            const appearance = window.NavigationSchema.appearance(this.siteConfig);
+            const root = document.documentElement;
+            root.dataset.themeStyle = appearance.style;
+            if (appearance.mode === 'auto') root.removeAttribute('data-theme');
+            else root.setAttribute('data-theme', appearance.mode);
+        }
+
+        renderSiteThemeSwitcher() {
+            const host = $('#siteThemeSwitcher');
+            if (!host || !this.siteConfig) return;
+            const style = window.NavigationSchema.appearance(this.siteConfig).style;
+            if (!host.children.length) host.innerHTML = Object.entries(window.NavigationSchema.THEMES).map(([id, item]) =>
+                `<button type="button" data-site-theme="${id}" aria-label="${this.esc(item.name)}主题">${this.esc(item.name)}</button>`).join('');
+            for (const button of host.children) {
+                const active = button.dataset.siteTheme === style;
+                button.setAttribute('aria-pressed', String(active));
+                button.onclick = () => {
+                    this.siteConfig.themeStyle = button.dataset.siteTheme;
+                    this.applySitePreviewTheme();
+                    this.renderSiteThemeSwitcher();
+                    this.renderSiteControls();
+                    this.markConfigDirty();
+                };
+            }
+        }
+
+        renderSiteEditor() {
+            const grid = $('#siteGrid');
+            if (!grid || !this.siteConfig || !this.siteSurface) return;
+            this.applySitePreviewTheme();
+            grid.classList.add('is-editing');
+            this.renderSiteHeader();
+            this.renderSiteThemeSwitcher();
+            this.renderGrid(this.siteSurface);
+            this.updateConfigStatus();
+        }
+
+        async saveSiteNavigation(options = {}) {
+            if (!this.siteLoaded) throw new Error('站点导航未加载，请刷新后重试');
+            const content = JSON.stringify(this.siteConfig);
             if (this.navigationSaving) throw new Error('正在保存，请稍后重试');
-            // 响应丢失时复用操作标识，避免把已提交结果误报为版本冲突。
             if (!this.pendingNavigation || this.pendingNavigation.content !== content) {
                 this.pendingNavigation = { content, body: { config: JSON.parse(content), revision: this.navigationRevision, operationId: crypto.randomUUID() } };
             }
             this.navigationSaving = true;
+            this.updateConfigStatus('正在发布', 'pending');
             try {
-                sessionStorage.setItem('pabu-pending-navigation', JSON.stringify(this.pendingNavigation.body));
+                sessionStorage.setItem('pabu-pending-site', JSON.stringify({ body: this.pendingNavigation.body }));
                 const res = await API.post('/api/admin/navigation', this.pendingNavigation.body, options);
-                if (!res.success) { if (res.error) { sessionStorage.removeItem('pabu-pending-navigation'); this.pendingNavigation = null; } throw new Error(res.error || '保存结果尚未确认，请刷新后重试'); }
-                sessionStorage.removeItem('pabu-pending-navigation');
+                if (!res.success) {
+                    if (res.error) { sessionStorage.removeItem('pabu-pending-site'); this.pendingNavigation = null; }
+                    throw new Error(res.error || '保存结果尚未确认，请刷新后重试');
+                }
+                sessionStorage.removeItem('pabu-pending-site');
                 this.navigationRevision = res.revision;
+                this.configSnapshot = JSON.stringify(this.siteConfig);
+                this.configDirty = false;
                 this.pendingNavigation = null;
+                this.updateConfigStatus('已发布', 'success');
                 return res;
-            } finally { this.navigationSaving = false; }
+            } finally {
+                this.navigationSaving = false;
+            }
         }
 
         isPasteTrigger(char) {
@@ -4648,17 +4555,12 @@
 
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和外观。访客配置保存在本机，管理员在首页直接编辑站点导航。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和外观。首页始终保存当前用户自己的导航，管理员登录不会切换首页。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };
             document.body.append(overlay);
             overlay.querySelector('.help-close').focus();
-        }
-
-        openHomepageEditor() {
-            if (this.adminPage) { location.href = '/?edit=1'; return; }
-            this.closeAdmin().then(closed => { if (closed && !this.editLayout) this.toggleEditLayout(); });
         }
 
         async openAdminPage() {
@@ -4692,13 +4594,14 @@
                     if (this.adminPage && !this.authenticated) location.href = '/';
                     return;
                 }
-                await this.finishLocalDraft(); this.privateEpoch = (this.privateEpoch || 0) + 1; this.authenticated = true; this.pauseSyncForAdmin(); this.notifyIdentityChanged();
-                API.envChangeNotified = false; this.sessionTrusted = false;
+                this.privateEpoch = (this.privateEpoch || 0) + 1;
+                this.authenticated = true;
+                this.sessionTrusted = false;
+                this.notifyIdentityChanged();
+                API.envChangeNotified = false;
                 if (values.choices.trustDevice) this.sessionTrusted = await this.trustDevice();
-                await this.loadSiteNavigation(); this.adoptServerTheme();
             }
-            if (!this.siteNavigationLoaded) await this.loadSiteNavigation();
-            if (!this.editLayout) this.beginConfigEdit();
+            if (!this.siteLoaded) await this.loadSiteEditor();
             this.renderAdminPanel();
             if (this.adminPage) {
                 $('#adminTitle').textContent = 'Pabu 管理后台';
@@ -4707,22 +4610,15 @@
             $('#modal').hidden = false; $('#cancelBtn').focus();
         }
 
-        beginConfigEdit() {
-            this.configSnapshot = JSON.stringify(this.config);
-            this.configDirty = false;
-            this.updateConfigStatus();
-        }
-
         markConfigDirty() {
-            if (!this.authenticated) { this.saveLocalNavigation(); return; }
-            this.configDirty = this.configSnapshot !== null && JSON.stringify(this.config) !== this.configSnapshot;
+            this.configDirty = this.siteDirty();
             this.updateConfigStatus();
         }
 
         updateConfigStatus(message = null, state = '') {
             const status = $('#configSaveStatus');
             if (!status) return;
-            status.textContent = message || (this.configDirty ? '有未保存的修改' : '修改后点击保存');
+            status.textContent = message || (this.configDirty ? '有未保存的修改' : '保存后立即发布');
             status.dataset.state = state || (this.configDirty ? 'pending' : '');
         }
 
@@ -4872,13 +4768,12 @@
             const saving = this.configSaving;
             if (!saving && this.configDirty) {
                 if (!force && !await this.confirmAction('站点导航有未保存的修改，确定放弃吗？', '放弃修改')) return false;
-                this.config = JSON.parse(this.configSnapshot);
-                this.applyTheme();
-                this.render();
+                if (this.configSnapshot) this.siteConfig = JSON.parse(this.configSnapshot);
+                if (this.siteSurface) this.renderSiteEditor();
             }
             this.configDirty = false;
-            this.configSnapshot = null;
             this.updateConfigStatus();
+            this.applyTheme();
             $('#modal').hidden = true;
             if (this.adminReturnFocus?.isConnected) this.adminReturnFocus.focus();
             return true;
@@ -4930,11 +4825,19 @@
                 <button type="button" class="admin-tab" role="tab" id="adminTabSync" aria-controls="adminPanelSync" data-panel="sync">用户与数据</button>
                 <button type="button" class="admin-tab" role="tab" id="adminTabAccount" aria-controls="adminPanelAccount" data-panel="account">账户</button></div><div class="admin-panels">
                 <section class="admin-panel" role="tabpanel" id="adminPanelSite" aria-labelledby="adminTabSite">
-                    <div class="section"><div class="section-title">站点导航</div><p class="fav-hint">导航内容在首页直接编辑，保存后所有未自定义的访客会看到同一份内容。</p><button type="button" class="btn btn-sm" id="editHomepageBtn">去首页编辑导航</button></div>
+                    <div class="section"><div class="section-title">站点默认导航</div><p class="fav-hint">一比一复刻访客默认首页。直接拖拽分类与链接，点 ＋ 增删，编辑后点右上角「保存并发布」生效。</p>
+                        <div class="site-canvas" id="siteCanvas"><div class="backboard">
+                            <div class="home-theme-toolbar"><div class="home-theme-switcher" id="siteThemeSwitcher" role="group" aria-label="视觉主题"></div></div>
+                            <header class="header" id="siteHeader"></header>
+                            <div class="search-caption" aria-hidden="true"><span><kbd>&gt;</kbd> 分享文本</span><span><kbd>取件码</kbd> 取回分享</span></div>
+                            <main class="grid" id="siteGrid"></main>
+                            <footer class="site-footer" aria-label="页面操作" aria-hidden="true"><nav class="site-footer-links"><span class="site-footer-link">说明</span><span class="site-footer-sep">·</span><span class="site-footer-link">同步</span><span class="site-footer-sep">·</span><span class="site-footer-link">编辑</span></nav></footer>
+                        </div></div>
+                    </div>
                     <div class="section"><div class="section-title">站点外观与搜索</div><p class="fav-hint">保存的是所有访客默认看到的外观和搜索引擎。</p>
                         <div class="setting-row"><label><span>视觉主题</span><select id="themeStyleSelect"></select></label></div>
                         <div class="setting-row"><label><span>明暗模式</span><select id="themeModeSelect"><option value="auto">跟随系统</option><option value="light">浅色模式</option><option value="dark">深色模式</option></select></label></div>
-                        <div class="setting-row"><label><span>默认搜索引擎</span><select id="defaultEngineSelect">${this.config.searchEngines.map(e => `<option value="${this.esc(e.id)}" ${e.id === this.config.searchEngine ? 'selected' : ''}>${this.esc(e.name)}</option>`).join('')}</select></label></div>
+                        <div class="setting-row"><label><span>默认搜索引擎</span><select id="defaultEngineSelect"></select></label></div>
                     </div>
                     <div class="section section-collapsible"><button type="button" class="section-header" aria-expanded="false" aria-controls="enginesSection" onclick="app.toggleSection('engines')"><span class="section-title">搜索引擎</span><span class="section-toggle-label">展开</span></button><div class="section-body collapsed" id="enginesSection"><div id="enginesEditor"></div><button class="add-btn" id="addEngine">添加搜索引擎</button></div></div>
                 </section>
@@ -4946,12 +4849,13 @@
                 </section>
                 <section class="admin-panel" role="tabpanel" id="adminPanelAccount" aria-labelledby="adminTabAccount" hidden><div class="section"><div class="section-title">登录安全</div><div class="setting-row"><label><span>信任此设备</span><div class="toggle-switch"><input type="checkbox" id="trustDeviceToggle"><span class="toggle-slider"></span></div></label></div><p class="fav-hint" id="trustDeviceHint"></p></div><div class="section"><button class="btn btn-danger" id="logoutBtn" style="width:100%">退出登录</button></div></section></div>`;
             this.bindAdminTabs();
-            this.renderEnginesEditor();
+            $('#saveBtn').textContent = '保存并发布';
             this.syncInvitesRendered = false;
             this.syncSpacesRendered = false;
             this.syncInviteBatch = null;
             this.selectAdminTab(this.adminTab || 'site');
-            $('#editHomepageBtn').onclick = () => this.openHomepageEditor();
+            if (this.siteLoaded) this.mountSiteEditor();
+            this.renderSiteControls();
             $('#createSingleInviteBtn').onclick = () => this.createSyncInvites(true);
             $('#createInviteBtn').onclick = () => this.createSyncInvites();
             $('#syncInviteList').addEventListener('click', event => { if (event.target.dataset.action === 'revoke-invite') this.revokeSyncInvite(event.target.dataset.id); if (event.target.dataset.action === 'retry-invites') { this.syncInvites = null; this.syncInvitesRendered = false; this.renderSyncInvites(); } });
@@ -4978,20 +4882,12 @@
             $('#syncSpaceState').onchange = event => { this.syncSpacesFilter.state = event.target.value; this.syncSpacesFilter.offset = 0; this.syncSpacesSelected.clear(); this.renderSyncSpaces(); };
             $('#syncSpaceSort').onchange = event => { this.syncSpacesFilter.sort = event.target.value; this.syncSpacesFilter.offset = 0; this.renderSyncSpaces(); };
             this.paintSyncPolicy(); this.paintSyncSpacesBulk(); this.paintSyncInviteBatch();
-            this.renderThemeStyleSelect($('#themeStyleSelect'), this.config);
-            $('#themeModeSelect').disabled = !!window.NavigationSchema.THEMES[window.NavigationSchema.appearance(this.config).style].mode;
-            $('#themeModeSelect').value = window.NavigationSchema.appearance(this.config).mode;
-            $('#themeStyleSelect').onchange = event => { this.config.themeStyle = event.target.value; this.applyTheme(); this.markConfigDirty(); };
-            $('#themeModeSelect').onchange = event => { this.config.theme = event.target.value; this.applyTheme(); this.markConfigDirty(); };
-            $('#defaultEngineSelect').onchange = event => { this.config.searchEngine = event.target.value; this.renderEngines(); this.markConfigDirty(); };
-            $('#addEngine').onclick = () => { this.config.searchEngines.push({ id: uid(), name: '新引擎', url: 'https://' }); this.renderEnginesEditor(); this.markConfigDirty(); };
             $('#trustDeviceToggle').checked = this.sessionTrusted;
             $('#trustDeviceToggle').onchange = async event => { const toggle = event.target, wanted = toggle.checked; toggle.disabled = true; const ok = await this.setDeviceTrust(wanted); toggle.disabled = false; if (ok !== wanted) { toggle.checked = !wanted; this.sessionTrusted = !wanted; } this.updateTrustDeviceHint(); };
             this.updateTrustDeviceHint();
             $('#logoutBtn').onclick = async () => {
                 if (this.navigationSaving || this.configSaving) { this.showToast('正在保存，请等待结果后退出', 'error'); return; }
                 if (this.pendingNavigation) { this.showToast('上次保存结果尚未确认，请重试保存后再退出', 'error', 8000); return; }
-                if (this.editLayout) { if (!await this.showUiDialog({ title: '退出登录', message: '先保存站点导航草稿？', confirmText: '保存并退出', cancelText: '取消退出' })) return; await this.saveEditSession(); if (this.editLayout) return; }
                 if (!await this.closeAdmin()) return;
                 try { const result = await API.post('/api/logout', {}); if (!result.success) throw new Error(); } catch { this.showToast('退出请求失败，请检查网络后重试', 'error'); return; }
                 this.clearPrivateState(); this.notifyIdentityChanged(); await this.refreshLocalNavigation();
@@ -5008,9 +4904,60 @@
             header.querySelector('.section-toggle-label').textContent = expanded ? '收起' : '展开';
         }
 
+        renderSiteControls() {
+            const config = this.siteConfig;
+            if (!config) return;
+            this.renderEnginesEditor();
+
+            const styleSelect = $('#themeStyleSelect');
+            if (styleSelect) {
+                this.renderThemeStyleSelect(styleSelect, config);
+                styleSelect.onchange = event => {
+                    config.themeStyle = event.target.value;
+                    this.applySitePreviewTheme();
+                    this.renderSiteThemeSwitcher();
+                    this.renderSiteHeader();
+                    this.markConfigDirty();
+                };
+            }
+
+            const modeSelect = $('#themeModeSelect');
+            if (modeSelect) {
+                const appearance = window.NavigationSchema.appearance(config);
+                modeSelect.disabled = !!window.NavigationSchema.THEMES[appearance.style].mode;
+                modeSelect.value = appearance.mode;
+                modeSelect.onchange = event => {
+                    config.theme = event.target.value;
+                    this.applySitePreviewTheme();
+                    this.markConfigDirty();
+                };
+            }
+
+            const engineSelect = $('#defaultEngineSelect');
+            if (engineSelect) {
+                engineSelect.innerHTML = config.searchEngines.map(engine =>
+                    `<option value="${this.esc(engine.id)}" ${engine.id === config.searchEngine ? 'selected' : ''}>${this.esc(engine.name)}</option>`).join('');
+                engineSelect.onchange = event => {
+                    config.searchEngine = event.target.value;
+                    this.renderSiteHeader();
+                    this.markConfigDirty();
+                };
+            }
+
+            const addEngine = $('#addEngine');
+            if (addEngine) addEngine.onclick = () => {
+                config.searchEngines.push({ id: uid(), name: '新引擎', url: 'https://' });
+                this.renderEnginesEditor();
+                this.renderSiteHeader();
+                this.markConfigDirty();
+            };
+        }
+
         renderEnginesEditor() {
             const container = $('#enginesEditor');
-            container.innerHTML = this.config.searchEngines.map((e, i) => `
+            const config = this.siteConfig;
+            if (!container || !config) return;
+            container.innerHTML = config.searchEngines.map((e, i) => `
                 <div class="item" data-idx="${i}">
                     <div class="item-row">
                         <input type="text" value="${this.esc(e.name)}" data-field="name" placeholder="名称">
@@ -5026,7 +4973,7 @@
                 const idx = +item.dataset.idx;
                 const field = e.target.dataset.field;
                 if (field) {
-                    this.config.searchEngines[idx][field] = e.target.value;
+                    config.searchEngines[idx][field] = e.target.value;
                     this.markConfigDirty();
                 }
             };
@@ -5034,12 +4981,13 @@
             container.onclick = (e) => {
                 if (e.target.classList.contains('del-engine')) {
                     const idx = +e.target.closest('.item').dataset.idx;
-                    if (this.config.searchEngines.length <= 1) { this.showToast('至少保留一个搜索引擎', 'error'); return; }
-                    const deleted = this.config.searchEngines.splice(idx, 1)[0];
-                    if (this.config.searchEngine === deleted.id) {
-                        this.config.searchEngine = this.config.searchEngines[0].id;
+                    if (config.searchEngines.length <= 1) { this.showToast('至少保留一个搜索引擎', 'error'); return; }
+                    const deleted = config.searchEngines.splice(idx, 1)[0];
+                    if (config.searchEngine === deleted.id) {
+                        config.searchEngine = config.searchEngines[0].id;
                     }
                     this.renderEnginesEditor();
+                    this.renderSiteHeader();
                     this.markConfigDirty();
                 }
             };
@@ -5052,49 +5000,34 @@
             this.configSaving = true;
             button.disabled = true;
             $('#modalBody').inert = true;
-            button.textContent = '保存中...';
-            this.updateConfigStatus('正在保存到服务器', 'pending');
-            // ⚠️ 必须带超时：没有它时一个卡住的请求会让 `finally` 永远不执行，
-            // `configSaving` 一直为 true、「保存」一直是禁用的「保存中...」，
-            // 只能刷新页面才能恢复。
+            button.textContent = '发布中...';
+            this.updateConfigStatus('正在发布站点导航', 'pending');
             const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout
                 ? AbortSignal.timeout(20000) : undefined;
-            // 面板可能已经被用户关掉了（保存期间现在允许关闭），那时行内状态看不到，
-            // 失败必须用 toast 说出来，否则这次保存失败是完全静默的。
-            // ⚠️ 失败后**不回滚内存里的 `config`**：面板可能已经关掉，静默回滚等于把
-            // 用户刚改的东西凭空抹掉（改回旧值、还要重改一遍）。内存与服务器不一致这件事
-            // 由这条 toast 交代；下次打开面板以内存为准，再保存一次即可。
             const reportFailure = message => {
                 this.updateConfigStatus(message, 'error');
-                if ($('#modal').hidden) this.showToast(message, 'error');
+                this.showToast(message, 'error');
             };
             try {
-                const res = await this.saveNavigation({ signal });
+                const res = await this.saveSiteNavigation({ signal });
                 if (res.success) {
-                    this.configDirty = false;
-                    this.configSnapshot = JSON.stringify(this.config);
-                    this.render();
-                    if (this.adminPage) {
-                        this.updateConfigStatus('已保存到服务器', 'success');
-                    } else {
-                        await this.closeAdmin(true);
-                    }
-                    this.showToast('站点导航设置已保存');
+                    this.renderSiteEditor();
+                    this.updateConfigStatus('已发布', 'success');
+                    this.showToast('站点导航已保存并发布');
                 } else {
                     reportFailure(res.error || '保存失败，请重试');
                 }
             } catch (e) {
                 const aborted = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
-                // 同上：被协调锁拒掉时要说出「正在执行另一项管理操作」，而不是让用户
-                // 对着「保存失败，请检查连接」去怀疑自己的网络。
                 const locked = e && (e.code === 'busy' || e.code === 'restore_halted');
                 reportFailure(aborted ? '保存超时，请检查连接后重试'
-                    : '保存失败，请检查连接后重试');
+                    : locked ? '正在执行另一项管理操作，请稍后重试'
+                        : '保存失败，请检查连接后重试');
             } finally {
                 this.configSaving = false;
                 $('#modalBody').inert = false;
                 button.disabled = false;
-                button.textContent = '保存';
+                button.textContent = '保存并发布';
             }
         }
 
