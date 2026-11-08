@@ -14,16 +14,29 @@ Pabu 是可自行部署的导航首页，支持访客本地配置、管理员导
 
 ## 部署
 
-需要 Node.js 22 或更新版本。安装依赖后启动：
+需要 Node.js 22 或更新版本。建议使用管理脚本安装：
 
 ```sh
-npm ci
-npm start
+curl -fsSL https://raw.githubusercontent.com/mh567/pabu/main/pabu.sh | bash
 ```
 
-默认监听 `127.0.0.1:4001`。默认弱密码 `admin123` 首次登录后会要求设置强密码。公网部署应使用 HTTPS 反向代理，并将 `COOKIE_SECURE=true` 保持开启。
+默认安装到 `~/pabu` 并监听 `127.0.0.1:4001`。指定目录：
 
-可复制 `.env.example` 为 `.env` 设置监听地址、端口、HTTPS 和日志路径。完整选项见 `server-config.example.json`。服务将配置和会话保存在 `config.json` 与 `pabu.db`，数据库和凭据文件由服务限制为仅当前用户可读写。
+```sh
+curl -fsSL https://raw.githubusercontent.com/mh567/pabu/main/pabu.sh | PABU_DIR=/opt/pabu bash
+```
+
+```sh
+cd ~/pabu
+./pabu.sh start      # 启动
+./pabu.sh status     # 状态与健康检查
+./pabu.sh update     # 更新，保留配置和数据库
+sudo ./pabu.sh enable  # 开机自启（systemd）
+```
+
+默认弱密码 `admin123` 首次登录后会要求设置强密码。公网部署应使用 HTTPS 反向代理，并将 `COOKIE_SECURE=true` 保持开启。
+
+可复制 `.env.example` 为 `.env` 设置监听地址、端口、HTTPS 和日志路径。完整选项见 `server-config.example.json`。服务将配置和会话保存在 `config.json` 与 `pabu.db`，数据库和凭据文件由服务限制为仅当前用户可读写。完整说明见 `DEPLOYMENT.md`。
 
 ## 本地开发
 

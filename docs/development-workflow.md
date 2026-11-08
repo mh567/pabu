@@ -5,3 +5,4 @@
 - 权限、同步和分享接口须通过实际 HTTP 流程验证。
 - 完成后执行 `node --test tests/*.test.js`、相关 `node --check` 和 `git diff --check`。
 - 变更功能边界时同步更新 README、架构说明和当前工作记录。
+- 变更部署方式时同步更新 `pabu.sh`、`DEPLOYMENT.md` 和 README 部署章节，并对管理脚本执行 `bash -n` 检查。
