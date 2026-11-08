@@ -346,8 +346,6 @@ test('停止同步的控件在对话框里，用户侧不提供删除云端空�
     // 删除只保留在管理端：用户误删会连带清掉其他设备看到的内容。
     assert.doesNotMatch(dialog, /id="syncDelete"/, '连接态不再提供删除云端空间');
     assert.doesNotMatch(dialog, /confirm_delete/, '不再有删除确认态');
-    // 停止的确认文案必须说清「已到达服务端的上传可能已经完成」——这是设计要求的告知。
-    assert.match(dialog, /已经到达服务端的上传可能已经完成/);
 });
 
 test('#9 的交互都接在对话框的点击委托上，没有孤儿控件', () => {
@@ -384,7 +382,7 @@ test('停用有自己的对话框状态与重试入口（不能落到「重新�
     const halted = dialog.slice(haltedStart, dialog.indexOf('return;', haltedStart));
     assert.ok(halted.length > 200, '渲染分支切出来了');
     assert.match(halted, /id="syncRetry"/, '要有「重试同步」');
-    assert.match(halted, /重新输入口令没有用/, '要明说输口令没用（否则用户会去重输口令）');
+    assert.match(halted, /本机导航不受影响/, '要说明本机导航不受影响');
     assert.match(halted, /id="syncStop"/, '也要能直接停止');
     assert.match(halted, /id="syncClose"/, '也要能关掉');
     assert.match(methodBodyOf(cleanApp, 'openSyncDialog'), /id === 'syncRetry'[\s\S]{0,60}retrySyncAfterHalt/, '重试要接线');

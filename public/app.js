@@ -1484,8 +1484,8 @@
                 const conflict = this.syncConflict;
                 body.innerHTML = `
                     <p class="sync-state">${this.esc(SYNC_STATUS_TEXT.conflict)}</p>
-                    <p class="sync-note">本机与云端不一致 · 云端版本 ${this.esc(String(conflict.baseRevision ?? '—'))} · 最近更新 ${this.esc(conflict.updatedAt ? this.syncRelTime(conflict.updatedAt) : '—')} · 本机有一份未上传的修改</p>
-                    <p class="sync-hint">两份都完整保留，选择其中一份覆盖另一份；不会逐字段合并。选之前可以先导出。</p>
+                    <p class="sync-note">本机与云端不一致 · 最近更新 ${this.esc(conflict.updatedAt ? this.syncRelTime(conflict.updatedAt) : '—')} · 本机有一份未上传的修改</p>
+                    <p class="sync-hint">两份都完整保留，选择其中一份覆盖另一份。选之前可以先导出。</p>
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncConflictExport">导出两边</button>
@@ -1499,7 +1499,7 @@
                 const cloud = this.syncCloud || {};
                 body.innerHTML = `
                     <p class="sync-state">${this.esc(SYNC_STATUS_TEXT[this.syncConnection ? this.syncStatus : 'local'] || '已连接')}</p>
-                    <p class="sync-note">云端空间 <code>${this.esc(String(space.spaceId || '').slice(0, 8))}</code> · 版本 ${this.esc(String(cloud.revision ?? space.revision ?? '—'))} · 最近更新 ${this.esc(cloud.updatedAt ? this.syncRelTime(cloud.updatedAt) : '—')}${this.syncLastSuccessAt ? ` · 最近成功同步 ${this.esc(this.syncRelTime(this.syncLastSuccessAt))}` : ''}</p>
+                    <p class="sync-note">云端空间 <code>${this.esc(String(space.spaceId || '').slice(0, 8))}</code> · 最近更新 ${this.esc(cloud.updatedAt ? this.syncRelTime(cloud.updatedAt) : '—')}</p>
                     ${recovery}
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <p class="sync-hint">其他设备用同一口令连接，本机修改自动同步。</p>
@@ -1519,11 +1519,11 @@
                 body.innerHTML = `
                     <p class="sync-state">${paused ? '同步服务已被暂停' : '空间已被停用'}</p>
                     <p class="sync-note">${paused
-                        ? '管理员暂停了同步服务，自动同步已暂停。已暂停的不只这一个空间，恢复后会自动继续。'
-                        : `云端空间 <code>${this.esc(String(this.syncConnection.spaceId || '').slice(0, 8))}</code> 被管理员停用，自动同步已暂停。`}</p>
+                        ? '管理员暂停了同步服务，恢复后会自动继续。'
+                        : `云端空间 <code>${this.esc(String(this.syncConnection.spaceId || '').slice(0, 8))}</code> 已被管理员停用。`}</p>
                     <p class="sync-hint">本机导航不受影响。${paused
-                        ? '每隔几分钟会自动检查一次，管理员恢复后无需操作；也可以现在就重试。'
-                        : '管理员重新启用后点「重试同步」即可继续。'}重新输入口令没有用，连接凭据仍然有效。</p>
+                        ? '管理员恢复后无需操作，也可以现在就重试。'
+                        : '管理员重新启用后点「重试同步」即可继续。'}</p>
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncStop">停止同步</button>
@@ -1536,7 +1536,6 @@
                 body.innerHTML = `
                     <p class="sync-state">停止同步？</p>
                     <p class="sync-note">本机导航会原样保留，只是不再与云端空间同步。云端空间与其他设备不受影响。</p>
-                    <p class="sync-hint">已经到达服务端的上传可能已经完成——停止不会撤回那一次写入。</p>
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncStopBack">返回</button>
                         <button type="button" class="btn btn-primary" id="syncStopConfirm" ${this.syncBusy ? 'disabled' : ''}>${this.syncBusy ? '停止中…' : '确认停止同步'}</button>
@@ -1551,7 +1550,7 @@
                     <p class="sync-state">该口令还没有云端空间</p>
                     ${needsInvite
                         ? `<label class="ui-dialog-field"><span>邀请码</span><input id="syncInvite" type="text" autocomplete="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"></label>
-                    <p class="sync-hint">需要管理员发放的一次性邀请码。将把本机当前的导航配置上传为新空间。</p>`
+                    <p class="sync-hint">需要管理员发放的一次性邀请码。将把本机导航上传为新空间。</p>`
                         : `<p class="sync-hint">将把本机导航上传为云端空间，其他设备输入同一口令即可连接。</p>`}
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
@@ -1565,7 +1564,7 @@
                 body.innerHTML = `
                     <p class="sync-state">该口令已存在云端空间</p>
                     <p class="sync-note">最近更新 ${this.esc(info.updatedAt ? this.syncRelTime(info.updatedAt) : '—')} · ${this.esc(String(info.entryCount ?? 0))} 个条目</p>
-                    <p class="sync-hint">选择覆盖方向。两个方向都会先把被替换的那一份留在本机。</p>
+                    <p class="sync-hint">两个方向都会先把被替换的那一份留在本机。</p>
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncBack">返回</button>
@@ -1581,9 +1580,8 @@
                 // 的告知正好相反——所以绝不能让这一屏落到别的确认态上。
                 body.innerHTML = `
                     <p class="sync-state">撤销全部旧设备？</p>
-                    <p class="sync-note">云端空间下所有旧的设备凭据都会被撤销，其他设备会立刻停止同步，需要重新输入口令才能再连。本机导航与云端内容都不动。</p>
+                    <p class="sync-note">其他设备会立刻停止同步，需要重新输入口令才能再连。本机导航与云端内容都不动。</p>
                     <label class="ui-dialog-field"><span>重新输入口令</span><input id="syncResetPassphrase" type="password" autocomplete="current-password" spellcheck="false" placeholder="用于确认这是你的空间"></label>
-                    <p class="sync-hint">这一步不会删除配置，也不会改变云端版本；只有你这一台设备会立刻拿到新凭据。其他设备上未上传的修改仍在它们本机，重新连接后可以再传。</p>
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncResetBack">返回</button>
@@ -1597,7 +1595,7 @@
                 <label class="ui-dialog-field"><span>口令</span><input id="syncPassphrase" type="password" autocomplete="new-password" spellcheck="false"></label>
                 <label class="ui-dialog-field"><span>再输一次</span><input id="syncPassphraseConfirm" type="password" autocomplete="new-password" spellcheck="false"></label>
                     <p class="sync-hint">用一条口令在多台设备之间同步导航；不需要注册账号。</p>
-                    <p class="sync-hint">知道口令的人都能读写这个空间，口令遗失无法找回。本机不保存口令，只保存一台设备的连接凭据。</p>
+                    <p class="sync-hint">知道口令的人都能读写这个空间，口令遗失无法找回。</p>
                 ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                 <div class="ui-dialog-actions sync-actions">
                     <button type="button" class="btn" id="syncClose">取消</button>

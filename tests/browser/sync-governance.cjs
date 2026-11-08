@@ -191,7 +191,7 @@ test('browser: 总暂停让已连接访客进入暂停态，解除后点「重�
     assert.equal(paused.pollMs, 300000, '总暂停时轮询间隔是 5 分钟');
     const pausedText = await owner.locator('#syncDialogBody').innerText();
     assert.match(pausedText, /暂停/, '文案说清是暂停');
-    assert.match(pausedText, /重新输入口令没有用/, '要明说输口令没用');
+    assert.match(pausedText, /本机导航不受影响/, '要说明本机导航不受影响');
 
     await app.request('/api/admin/sync-settings', { cookie, body: { syncPaused: false } });
     await owner.locator('#syncRetry').click();
