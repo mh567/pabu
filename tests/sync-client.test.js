@@ -308,17 +308,16 @@ test('本地同步记录的形状校验：坏字段只丢那个字段，不废�
 test('访客的同步接口不受限流豁免，管理员邀请码接口必须带限流与管理员会话', () => {
     const code = stripComments(serverSource);
     const guestRoutes = [...code.matchAll(/app\.(get|post)\('(\/api\/sync[^']*)'([^,]*(?:,|\)))/g)];
-    // 8 = #9 的 7 条 + #10 的 `POST /api/sync/device/reset`（「撤销全部旧设备并重新连接」）。
-    // 这不是放宽：条数与路由名同时钉住，多一条少一条都红；下面还逐个点名挂桶。
-    assert.equal(guestRoutes.length, 8, `访客侧应恰好 8 条，实际 ${guestRoutes.length}`);
+    // 7 = #9 的 6 条 + #10 的 `POST /api/sync/device/reset`（「撤销全部旧设备并重新连接」）。
+    // 用户侧不提供删除云端空间；管理端的删除走 `/api/admin/sync-spaces/:id/delete`。
+    assert.equal(guestRoutes.length, 7, `访客侧应恰好 7 条，实际 ${guestRoutes.length}`);
     assert.ok(guestRoutes.some(([, , route]) => route === '/api/sync/device/reset'), '新那条是设备重置');
     for (const [, , route] of guestRoutes) {
         assert.doesNotMatch(code, new RegExp(`'${route.replace(/[/]/g, '\\/')}',\\s*requireAdmin`),
             `${route} 不能要求管理员会话——访客就是没有会话的那个人`);
     }
-    // 会用到口令的入口都挂 IP 桶（防猜口令），包括 #9 的删除——它要求重新输口令；
-    // 读写两条走设备令牌 + 按空间限流。
-    for (const route of ['/api/sync/space/check', '/api/sync/space/create', '/api/sync/space/connect', '/api/sync/space/delete', '/api/sync/device/revoke', '/api/sync/device/reset']) {
+    // 会用到口令的入口都挂 IP 桶（防猜口令）；读写两条走设备令牌 + 按空间限流。
+    for (const route of ['/api/sync/space/check', '/api/sync/space/create', '/api/sync/space/connect', '/api/sync/device/revoke', '/api/sync/device/reset']) {
         assert.match(code, new RegExp(`app\\.post\\('${route.replace(/[/]/g, '\\/')}', syncConnectLimit`), `${route} 挂连接桶`);
     }
     for (const kind of ['read', 'write']) {
@@ -335,32 +334,28 @@ test('访客的同步接口不受限流豁免，管理员邀请码接口必须�
     }
 });
 
-// ==================== #9：停止同步与删除云端空间 ====================
+// ==================== #9：停止同步 ====================
 
-test('停止与删除的控件都在对话框里，且只从名字就是后果的控件进入', () => {
+test('停止同步的控件在对话框里，用户侧不提供删除云端空间', () => {
     const dialog = methodBodyOf(cleanApp, 'renderSyncDialog');
-    // 连接态：停止同步是普通按钮，删除云端空间单独落在危险区（它是唯一不可撤销的动作）。
+    // 连接态：停止同步是普通按钮，撤销设备单独落在危险区。
     assert.match(dialog, /id="syncStop"/, '连接态有「停止同步」');
-    assert.match(dialog, /id="syncDelete"/, '连接态有「删除云端空间」');
-    assert.match(dialog, /class="sync-link sync-danger" id="syncDelete"/, '删除入口要带危险样式，不能和普通按钮混在一起');
     assert.ok(dialog.indexOf('sync-danger-zone') > dialog.indexOf('id="syncClose"'), '危险区落在按钮行**下方**，不占主操作位');
     assert.match(dialog, /id="syncStopConfirm"[^>]*>[\s\S]{0,80}确认停止同步/, '确认按钮的文案说清它做什么');
-    assert.match(dialog, /id="syncDeleteConfirm"[^>]*>[\s\S]{0,80}确认删除云端空间/, '删除确认按钮的文案就是它的后果');
-    // 确认态要有可返回的路，且删除确认要求**重新输入口令**。
     assert.match(dialog, /id="syncStopBack"/);
-    assert.match(dialog, /id="syncDeleteBack"/);
-    assert.match(dialog, /id="syncDeletePassphrase"[^>]*type="password"/, '删除要重新输口令（不是只点一下）');
+    // 删除只保留在管理端：用户误删会连带清掉其他设备看到的内容。
+    assert.doesNotMatch(dialog, /id="syncDelete"/, '连接态不再提供删除云端空间');
+    assert.doesNotMatch(dialog, /confirm_delete/, '不再有删除确认态');
     // 停止的确认文案必须说清「已到达服务端的上传可能已经完成」——这是设计要求的告知。
     assert.match(dialog, /已经到达服务端的上传可能已经完成/);
 });
 
 test('#9 的交互都接在对话框的点击委托上，没有孤儿控件', () => {
     const open = methodBodyOf(cleanApp, 'openSyncDialog');
-    for (const id of ['syncStop', 'syncStopBack', 'syncStopConfirm', 'syncDelete', 'syncDeleteBack', 'syncDeleteConfirm']) {
+    for (const id of ['syncStop', 'syncStopBack', 'syncStopConfirm']) {
         assert.match(open, new RegExp(`id === '${id}'`), `${id} 要有处理分支`);
     }
-    // 删除确认框里回车 = 确认删除（口令框里回车是「检查并连接」，两处别混）
-    assert.match(open, /event\.target\.id === 'syncDeletePassphrase'[\s\S]{0,60}confirmDeleteSpace/, '删除确认框回车 = 确认删除');
+    assert.doesNotMatch(open, /syncDelete/, '删除相关的交互分支已移除');
 });
 
 test('停止同步：清凭据与递增代次在**同一次**落盘里，随后才尽力撤销令牌', () => {
@@ -380,20 +375,6 @@ test('停止同步：清凭据与递增代次在**同一次**落盘里，随后�
     assert.ok(stop.indexOf('await this.clearSyncConnection()') < stop.indexOf('/api/sync/device/revoke'),
         '先本地断开、后尽力撤销——顺序反了会出现「撤销了但本地还有凭据」的中间态');
     assert.match(stop, /\.catch\(\(\) => \{\}\)/, '撤销是尽力而为，失败不能变成用户可见的错误');
-});
-
-test('删除云端空间：双要素、暂停上传、结果不确定再核对一次、任何路径都不重建', () => {
-    const del = methodBodyOf(cleanApp, 'confirmDeleteSpace');
-    assert.match(del, /API\.post\('\/api\/sync\/space\/delete', \{ proof \}, \{ token \}\)/, '请求要同时带口令证明与设备令牌（双要素）');
-    assert.match(del, /this\.syncDeleting = true/, '删除期间要挡住上传');
-    assert.match(del, /this\.stopSyncTimers\(\)/, '删除期间停掉调度');
-    assert.match(del, /error\.code === 'space_deleted'[\s\S]{0,80}done = true/, '第二次拿到「已删除」就是确定答案（核对原空间）');
-    assert.match(del, /error\.code === 'proof_mismatch'/, '口令错要单独分支（不能当网络错去重试）');
-    assert.match(del, /attempt < 2/, '结果不确定只再试一次');
-    assert.doesNotMatch(del, /\/api\/sync\/space\/create/, '删除路径绝不能调创建（不自动重建）');
-    assert.match(del, /this\.syncDeleting = false/, '失败要把挡板撤掉');
-    const request = methodBodyOf(cleanApp, 'requestDeleteSpace');
-    assert.match(request, /navigator\.onLine === false[\s\S]{0,120}需要在线/, '离线时明确拒绝并说明原因');
 });
 
 test('停用有自己的对话框状态与重试入口（不能落到「重新输口令」的表单上）', () => {
@@ -429,15 +410,11 @@ test('错误码 → 文案只有一处映射，四类各说各的话', () => {
     assert.match(methodBodyOf(cleanApp, 'syncPullCheck'), /await this.handleSyncTerminal\(error\)/);
 });
 
-test('暂停上传的两个挡板（删除中 / 空间停用）在每一处排程入口都挡着', () => {
-    for (const name of ['markSyncDirty', 'scheduleSyncUpload', 'startSyncUpload']) {
-        assert.match(methodBodyOf(cleanApp, name), /syncDeleting/, `${name} 要挡「删除中」`);
-    }
+test('空间停用后，每一处排程入口与上传出口都挡住上传', () => {
     for (const name of ['markSyncDirty', 'scheduleSyncUpload', 'uploadOnce']) {
         assert.match(methodBodyOf(cleanApp, name), /syncHalted/, `${name} 要挡「空间已停用」`);
     }
-    // 上传的唯一出口也要挡：单飞闩之后仍然早退（否则挡板只挡住了排程，没挡住已经在排的那个）
-    assert.match(methodBodyOf(cleanApp, 'uploadOnce'), /this\.syncDeleting/);
+    assert.doesNotMatch(cleanApp, /syncDeleting/, '用户侧删除已移除，不再保留删除挡板');
 });
 
 test('落盘一律带期望代次；只有推进代次的那条路不带（它自己在换代次）', () => {

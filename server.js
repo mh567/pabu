@@ -812,15 +812,6 @@ app.post('/api/sync/config', syncDeviceGuard('write'), (req, res) => {
     catch (error) { syncFailure(res, error); }
 });
 
-// 删除云端空间。鉴权是**双要素**：Bearer 令牌把空间钉住，body 里的口令证明再验证
-// 一次（设计要求的「重新输入口令」）——只凭口令分不清「口令打错了」与「空间早被
-// 删了」，而这两种的下一步完全不同。挂连接桶是因为口令是这里唯一的暴力面。
-app.post('/api/sync/space/delete', syncConnectLimit, (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    try { res.json(syncStore.deleteSpace(readDeviceToken(req), req.body || {})); }
-    catch (error) { syncFailure(res, error); }
-});
-
 // 停止同步时撤销**本设备**令牌。调用方（浏览器）已经先做完了本地断开，这里只是
 // 尽力而为：无论令牌在不在、空间删没删，都返回成功——把失败做成用户可见的错误
 // 只会让「离线也能停止」这条要求落空。
@@ -926,8 +917,8 @@ app.post('/api/admin/sync-spaces/:id/disable', rateLimit, requireAdmin, (req, re
     } catch (error) { syncFailure(res, error); }
 });
 
-// 管理员删除：**与用户删除共用 store 里那一份墓碑实现**（`deleteSpaceAsAdmin`
-// 内部调 `tombstoneSpace`）。管理员没有口令，所以这里不做双要素——鉴权是会话。
+// 管理员删除：**复用 store 里的墓碑实现**（`deleteSpaceAsAdmin` 内部调
+// `tombstoneSpace`）。删除只保留在管理端，避免用户误删共享空间的内容。
 app.post('/api/admin/sync-spaces/:id/delete', rateLimit, requireAdmin, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { res.json(syncStore.deleteSpaceAsAdmin(req.params.id)); }

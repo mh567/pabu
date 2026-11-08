@@ -1959,7 +1959,12 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    ⚠️ 不要写 touch-action: none：书签网格在首页常常需要滚动浏览，写了就滚不动。
    激活判据是「长按 400ms」，滚动交给浏览器——这与模块把手的
    touch-action: none（那里没有滚动需求）是有意的不一致。 */
-.grid.is-editing .bookmark,
+.grid.is-editing .bookmark {
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
 .grid.is-editing .category-header {
     cursor: grab;
     -webkit-user-select: none;

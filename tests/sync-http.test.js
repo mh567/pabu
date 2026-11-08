@@ -35,7 +35,6 @@ async function ready(t) {
         connect: (proof, operationId = `connect-${Math.random().toString(36).slice(2)}`) => app.request('/api/sync/space/connect', { body: { proof, operationId } }),
         read: (token) => app.request('/api/sync/config', { headers: bearer(token) }),
         write: (token, body) => app.request('/api/sync/config', { method: 'POST', headers: bearer(token), body }),
-        remove: (token, proof) => app.request('/api/sync/space/delete', { method: 'POST', headers: bearer(token), body: { proof } }),
         revoke: (token) => app.request('/api/sync/device/revoke', { method: 'POST', headers: bearer(token), body: {} }),
         // #10：撤销全部旧设备并重新连接
         reset: (proof, operationId = 'reset-1') => app.request('/api/sync/device/reset', { body: { proof, operationId } }),
@@ -279,68 +278,13 @@ test('HTTP: 写配置带错的空间代次 → 409 generation_mismatch；不带�
     assert.equal((await legacy.json()).revision, 3);
 });
 
-test('HTTP: 删除云端空间——双要素鉴权、墓碑、吊销全部设备、清空间回执', async (t) => {
-    const f = await ready(t);
-    const cookie = await f.admin();
-    const proof = await spaceProof('删除口令');
-    const created = await (await f.create(proof, (await f.newInvite(cookie)).code)).json();
-    const a = created.deviceToken;
-    const b = (await (await f.connect(proof, 'device-b')).json()).deviceToken;
-    await f.write(a, { revision: 1, operationId: 'before-delete', config: { ...CONFIG, theme: 'dark' }, modules: {} });
-    // 删除前先留一份「管理员侧数据」的快照：删除只该动 sync_* 四张表。
-    const configBefore = await (await f.app.request('/api/config')).json();
-
-    // ① 口令不对 → 403 proof_mismatch，且空间原样（这正是「双要素」要挡掉的歧义）
-    const wrong = await f.remove(a, await spaceProof('不是这个口令'));
-    assert.equal(wrong.status, 403);
-    assert.equal((await wrong.json()).code, 'proof_mismatch');
-    assert.equal((await f.read(b)).status, 200, '口令错不能动到空间');
-    let db = f.db();
-    assert.equal(db.prepare('SELECT deleted FROM sync_spaces WHERE id = ?').get(created.spaceId).deleted, 0);
-    db.close();
-
-    // ② 正确口令 + 有效令牌 → 删除
-    const done = await f.remove(a, proof);
-    assert.equal(done.status, 200);
-    const doneBody = await done.json();
-    assert.equal(doneBody.success, true);
-    assert.equal(doneBody.revoked, 2, '响应里的吊销台数要如实（两台设备都在这个空间下）');
-
-    db = f.db();
-    const space = db.prepare('SELECT * FROM sync_spaces WHERE id = ?').get(created.spaceId);
-    assert.equal(space.deleted, 1, '留墓碑而不是真删行（否则设备行会成孤儿 / 级联后分不清状态）');
-    assert.match(space.proof_id, /^gone:/, '口令槽要释放（墓碑的 proof_id 换成不含口令的唯一值）');
-    assert.equal(space.deleted_proof_id, proofIdOf(proof), '墓碑自己记住原口令哈希，供重建时取新代次');
-    assert.equal(space.config_json, '{}', '内容要清掉，读路径永不返回墓碑内容');
-    const devices = db.prepare('SELECT COUNT(*) n FROM sync_devices WHERE space_id = ? AND revoked = 1').get(created.spaceId).n;
-    assert.equal(devices, 2, '该空间全部设备都吊销');
-    const receipts = db.prepare('SELECT scope FROM sync_receipts WHERE scope IN (?, ?)').all(`config:${created.spaceId}`, `connect:${created.spaceId}`).length;
-    assert.equal(receipts, 0, '空间作用域的回执要清掉');
-    db.close();
-
-    // ③ 两台旧设备都拿到 410 space_deleted（能与「令牌无效」区分）
-    for (const token of [a, b]) {
-        const res = await f.read(token);
-        assert.equal(res.status, 410, '删除后旧设备必须是 410');
-        assert.equal((await res.json()).code, 'space_deleted');
-    }
-    // ④ 重试删除（响应丢了的情形）→ 410，仍然是确定答案
-    const retry = await f.remove(a, proof);
-    assert.equal(retry.status, 410);
-    assert.equal((await retry.json()).code, 'space_deleted');
-    // ⑤ 删除不影响管理员配置与会话：不只看接口还活着，还比内容**逐字节一致**
-    assert.equal((await f.app.request('/api/session', { cookie })).status, 200);
-    assert.equal((await f.app.request('/api/admin/sync-invites', { cookie })).status, 200);
-    assert.deepEqual(await (await f.app.request('/api/config')).json(), configBefore, '站点默认配置逐字节不变');
-});
-
-test('HTTP: 同口令重建用新 id 与新代次，旧令牌够不到新空间', async (t) => {
+test('HTTP: 同口令在管理员删除后重建用新 id 与新代次，旧令牌够不到新空间', async (t) => {
     const f = await ready(t);
     const cookie = await f.admin();
     const proof = await spaceProof('重建口令');
     const old = await (await f.create(proof, (await f.newInvite(cookie)).code)).json();
     assert.equal(old.generation, 1, '第一次建空间是第 1 代');
-    await f.remove(old.deviceToken, proof);
+    assert.equal((await f.adminDelete(cookie, old.spaceId)).status, 200, '删除只保留在管理端');
 
     const again = await (await f.create(proof, (await f.newInvite(cookie)).code, 'rebuild')).json();
     assert.equal(again.success, true, '同一个口令可以重建（口令槽已释放）');
@@ -357,18 +301,18 @@ test('HTTP: 同口令重建用新 id 与新代次，旧令牌够不到新空间'
     db.close();
 });
 
-test('HTTP: 同一个口令反复「建 → 删 → 再建 → 再删」都成立（墓碑唯一性来自空间 id）', async (t) => {
+test('HTTP: 同一个口令反复「建 → 管理员删除 → 再建 → 再删」都成立（墓碑唯一性来自空间 id）', async (t) => {
     const f = await ready(t);
     const cookie = await f.admin();
     const proof = await spaceProof('两轮口令');
     const first = await (await f.create(proof, (await f.newInvite(cookie)).code, 'cycle-1')).json();
-    assert.equal((await f.remove(first.deviceToken, proof)).status, 200);
+    assert.equal((await f.adminDelete(cookie, first.spaceId)).status, 200);
 
     // 第二轮：重建（同一口令 → 新 id、代次 +1），再删一次。
     const second = await (await f.create(proof, (await f.newInvite(cookie)).code, 'cycle-2')).json();
     assert.notEqual(second.spaceId, first.spaceId);
     assert.equal(second.generation, 2);
-    const secondDelete = await f.remove(second.deviceToken, proof);
+    const secondDelete = await f.adminDelete(cookie, second.spaceId);
     assert.equal(secondDelete.status, 200, '第二次删除同一个口令的空间不能报错——墓碑只能靠空间 id 唯一');
 
     const db = f.db();
@@ -383,19 +327,19 @@ test('HTTP: 同一个口令反复「建 → 删 → 再建 → 再删」都成�
     assert.equal((await f.read(third.deviceToken)).status, 200);
 });
 
-test('HTTP: 删除与上传竞争——删除先完成时旧上传失败，且不会让空间复活', async (t) => {
+test('HTTP: 管理员删除与上传竞争——删除先完成时旧上传失败，且不会让空间复活', async (t) => {
     const f = await ready(t);
     const cookie = await f.admin();
     const proof = await spaceProof('竞争口令');
     const created = await (await f.create(proof, (await f.newInvite(cookie)).code)).json();
     const token = created.deviceToken;
 
-    // 同时发：一次写（合法基线）与一次删除。删除与上传都是单事务，谁先到谁生效。
+    // 同时发：一次写（合法基线）与一次管理员删除。删除与上传都是单事务，谁先到谁生效。
     // ⚠️ 这一半是**并发**形式：本机 sqlite 是同步单线程，两种先后都可能发生，
     // 所以这里只允许两种结果，真正的不变式在下面的终态断言里（终态与顺序无关）。
     const [write, removal] = await Promise.all([
         f.write(token, { revision: 1, operationId: 'race-write', config: { ...CONFIG, theme: 'dark' }, modules: {} }),
-        f.remove(token, proof)
+        f.adminDelete(cookie, created.spaceId)
     ]);
     assert.equal(removal.status, 200, '删除必须成功');
     assert.ok([200, 410].includes(write.status), `并发下写只能是 200（先到）或 410（删除先到），实际 ${write.status}`);
@@ -412,7 +356,7 @@ test('HTTP: 删除与上传竞争——删除先完成时旧上传失败，且�
     // 另一半是**确定性**的：删除先完成（顺序构造，不靠调度）时旧令牌的写必须失败，
     // 而且不能把空间写活。并发那一半盖的是交错，这一半钉的是「删除先完成」的必然后果。
     const second = await (await f.create(await spaceProof('竞争口令二'), (await f.newInvite(cookie)).code, 'race-2')).json();
-    assert.equal((await f.remove(second.deviceToken, await spaceProof('竞争口令二'))).status, 200);
+    assert.equal((await f.adminDelete(cookie, second.spaceId)).status, 200);
     const late = await f.write(second.deviceToken, { revision: 1, operationId: 'late-write', config: CONFIG, modules: {} });
     assert.equal(late.status, 410, '删除先完成之后，旧上传必须失败');
     assert.equal((await late.json()).code, 'space_deleted');
@@ -731,7 +675,7 @@ test('HTTP: 管理员删除 → 410，与「设备被踢」「令牌无效」三
     assert.equal(listing.usage.bytes > 0, true, '另一个空间的内容仍计入');
 });
 
-test('HTTP: 总暂停——读/写/连/建/重签一律 503 且带 Retry-After；删除与撤销照常可用', async (t) => {
+test('HTTP: 总暂停——读/写/连/建/重签一律 503 且带 Retry-After；撤销本设备照常可用', async (t) => {
     const f = await ready(t);
     const cookie = await f.admin();
     const proof = await spaceProof('总暂停口令');
@@ -766,12 +710,8 @@ test('HTTP: 总暂停——读/写/连/建/重签一律 503 且带 Retry-After�
     assert.equal(db.prepare('SELECT COUNT(*) n FROM sync_invites WHERE used_at IS NOT NULL').get().n, 1, '只有建那个空间用掉的那张');
     db.close();
 
-    // 但「我要离开」与「我要删掉自己的东西」照常：挡住它们等于把用户锁在里面。
+    // 但「我要离开」照常：挡住它等于把用户锁在一个不想再用的连接里。
     assert.equal((await f.revoke('f'.repeat(64))).status, 200, '暂停期间撤销本设备照常（坏令牌也返回成功）');
-    const removal = await f.remove(token, proof);
-    assert.equal(removal.status, 200, '暂停期间删除空间照常');
-    assert.equal((await removal.json()).revoked, 1);
-    assert.equal((await f.read(token)).status, 410, '删除真的生效了（不是「假装成功」）');
 
     // 解除暂停：一切照旧。
     assert.equal((await (await f.setPolicy(cookie, { syncPaused: false })).json()).settings.syncPaused, false);

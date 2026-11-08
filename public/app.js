@@ -273,9 +273,6 @@
             // 身份是否还在确认中：确认为真期间**不跑普通同步**（设计 §4.1）。
             // 探测失败时保持为真——「确认不了」不能当成「是匿名」。
             this.identityPending = true;
-            // 删除云端空间期间**挡住一切上传**（设计要求「删除期间暂停本浏览器上传」）：
-            // 删除与写在同一张表上串行，让删除先落地才是有序的做法。
-            this.syncDeleting = false;
             // 服务端说这台空间被停用 / 同步服务被总暂停时置上：停自动重试，等用户主动
             // 点「重试同步」或管理员恢复。不置的话会对着一个 403/503 无限退避。
             // 取值 `null`（没暂停）/ `'disabled'`（该空间被停用）/ `'paused'`（总暂停）：
@@ -1438,10 +1435,6 @@
                 if (id === 'syncStop') return this.setSyncState('confirm_stop');
                 if (id === 'syncStopBack') return this.setSyncState('connected');
                 if (id === 'syncStopConfirm') return this.confirmStopSync();
-                // 删除云端空间：危险操作，只从这个**名字就是它后果**的按钮进入。
-                if (id === 'syncDelete') return this.requestDeleteSpace();
-                if (id === 'syncDeleteBack') return this.setSyncState('connected');
-                if (id === 'syncDeleteConfirm') return this.confirmDeleteSpace();
                 // 撤销全部旧设备并重新连接：也是危险操作（会踢掉其他设备），
                 // 但从**次级链接**进入，且确认态要求重新输入口令。
                 if (id === 'syncResetDevices') return this.requestResetDevices();
@@ -1460,10 +1453,9 @@
             });
             overlay.addEventListener('keydown', event => {
                 if (event.key === 'Escape') { event.preventDefault(); return this.closeSyncDialog(); }
-                // 口令框里按回车 = 点「检查并连接」；删除确认框里按回车 = 确认删除。
+                // 口令框里按回车 = 点「检查并连接」；撤销设备的确认框里回车 = 确认撤销。
                 if (event.key === 'Enter' && event.target.tagName === 'INPUT') {
                     event.preventDefault();
-                    if (event.target.id === 'syncDeletePassphrase') return this.confirmDeleteSpace();
                     if (event.target.id === 'syncResetPassphrase') return this.confirmResetDevices();
                     this.submitSyncPassphrase();
                 }
@@ -1510,14 +1502,13 @@
                     <p class="sync-note">云端空间 <code>${this.esc(String(space.spaceId || '').slice(0, 8))}</code> · 版本 ${this.esc(String(cloud.revision ?? space.revision ?? '—'))} · 最近更新 ${this.esc(cloud.updatedAt ? this.syncRelTime(cloud.updatedAt) : '—')}${this.syncLastSuccessAt ? ` · 最近成功同步 ${this.esc(this.syncRelTime(this.syncLastSuccessAt))}` : ''}</p>
                     ${recovery}
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
-                    <p class="sync-hint">其他设备用同一口令连接即可看到这份配置；本机的修改会自动同步过去。</p>
+                    <p class="sync-hint">其他设备用同一口令连接，本机修改自动同步。</p>
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncStop">停止同步</button>
                         <button type="button" class="btn" id="syncNow">立即同步</button>
                         <button type="button" class="btn btn-primary" id="syncClose">关闭</button>
                     </div>
-                    <p class="sync-note sync-danger-zone"><button type="button" class="sync-link" id="syncResetDevices">撤销全部旧设备并重新连接</button><br>其他设备会立刻停止同步，需要重新输入口令才能再连；本机导航与云端内容都不动。</p>
-                    <p class="sync-note sync-danger-zone"><button type="button" class="sync-link sync-danger" id="syncDelete">删除云端空间</button><br>删除后旧设备全部失效，本机导航保留，但无法撤销。</p>`;
+                    <p class="sync-note sync-danger-zone"><button type="button" class="sync-link" id="syncResetDevices">撤销全部旧设备并重新连接</button><br>其他设备会立刻停止同步，需要重新输入口令才能再连；本机导航与云端内容都不动。</p>`;
                 return;
             }
             if (this.syncState === 'halted' && this.syncConnection) {
@@ -1552,19 +1543,6 @@
                     </div>`;
                 return;
             }
-            if (this.syncState === 'confirm_delete') {
-                body.innerHTML = `
-                    <p class="sync-state">删除云端空间？</p>
-                    <p class="sync-note">云端配置会被删除，这台设备与其他所有已连接的设备都会立刻失效。本机导航会保留，但这一步无法撤销。</p>
-                    <label class="ui-dialog-field"><span>重新输入口令</span><input id="syncDeletePassphrase" type="password" autocomplete="current-password" spellcheck="false" placeholder="用于确认这是你的空间"></label>
-                    <p class="sync-hint">删除后如果想再用同一口令同步，${this.syncInviteRequired ? '需要用新的邀请码重新创建空空间' : '重新输入口令即可创建空空间'}。旧内容不会回来。</p>
-                    ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
-                    <div class="ui-dialog-actions sync-actions">
-                        <button type="button" class="btn" id="syncDeleteBack">返回</button>
-                        <button type="button" class="btn btn-danger" id="syncDeleteConfirm" ${this.syncBusy ? 'disabled' : ''}>${this.syncBusy ? '删除中…' : '确认删除云端空间'}</button>
-                    </div>`;
-                return;
-            }
             if (this.syncState === 'not_found') {
                 // 邀请功能关闭时不画邀请码输入框：只凭口令即可创建。文案要说清这一步
                 // 会上传本机配置，因为按钮一点就建空间。
@@ -1574,7 +1552,7 @@
                     ${needsInvite
                         ? `<label class="ui-dialog-field"><span>邀请码</span><input id="syncInvite" type="text" autocomplete="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"></label>
                     <p class="sync-hint">需要管理员发放的一次性邀请码。将把本机当前的导航配置上传为新空间。</p>`
-                        : `<p class="sync-hint">管理员没有开启邀请限制。将把本机当前的导航配置上传为新空间，之后在其它设备输入同一口令即可连接。</p>`}
+                        : `<p class="sync-hint">将把本机导航上传为云端空间，其他设备输入同一口令即可连接。</p>`}
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncBack">返回</button>
@@ -1911,7 +1889,7 @@
             if (this.syncAdopting) return;
             if (!this.syncConnection || !this.canRunOrdinarySync() || this.localUnavailable) return;
             if (this.syncStatus === 'conflict') return;   // 冲突未决时不动，等用户选
-            if (this.syncDeleting || this.syncHalted) return;   // 删除中 / 空间已停用
+            if (this.syncHalted) return;   // 空间已停用
             this.setSyncStatus(navigator.onLine === false ? 'pending' : 'syncing');
             this.scheduleSyncUpload();
         }
@@ -1925,7 +1903,7 @@
          */
         scheduleSyncUpload() {
             if (!this.syncConnection || !this.canRunOrdinarySync() || this.syncStatus === 'conflict') return;
-            if (this.syncDeleting || this.syncHalted) return;
+            if (this.syncHalted) return;
             clearTimeout(this.syncDebounceTimer);
             this.syncDebounceTimer = setTimeout(() => this.startSyncUpload(), SYNC_DEBOUNCE_MS);
             // ⚠️ 上限只在**本批第一次脏**时起算：已经排着就不再重置，
@@ -1936,7 +1914,7 @@
         }
 
         startSyncUpload() {
-            if (this.syncDeleting || !this.canRunOrdinarySync()) return;
+            if (!this.canRunOrdinarySync()) return;
             clearTimeout(this.syncDebounceTimer); this.syncDebounceTimer = null;
             clearTimeout(this.syncMaxWaitTimer); this.syncMaxWaitTimer = null;
             clearTimeout(this.syncRetryTimer); this.syncRetryTimer = null;
@@ -2090,9 +2068,9 @@
          */
         async uploadOnce() {
             if (!this.syncConnection || this.syncStatus === 'conflict') return;
-            // 删除/停用期间绝不发上传：它是真正发请求的那一处，排程那一层的挡板
-            // 挡不住「删除开始时已经排好但还没跑」的那一轮。
-            if (this.syncDeleting || this.syncHalted) return;
+            // 空间停用期间绝不发上传：它是真正发请求的那一处，排程那一层的挡板
+            // 挡不住「停用开始时已经排好但还没跑」的那一轮。
+            if (this.syncHalted) return;
             // 单飞：本标签页已经有一个在途 → 只记「还有下一轮」，绝不并行第二条。
             if (this.syncUploadInFlight) { this.syncUploadAgain = true; return; }
             this.syncUploadInFlight = true;
@@ -2250,102 +2228,6 @@
             if (!failed) {
                 this.setSyncState('disconnected');
                 this.showToast('已停止同步，本机导航保持不变', 'success', 5000);
-            }
-            this.renderSyncDialog();
-        }
-
-        /**
-         * 进入删除确认。**在线是硬要求**：删除要在服务端发生，离线时连「到底删没删」
-         * 都无法确定（设计要求「网络结果不确定时先查询原空间代次是否仍存在」）。
-         */
-        requestDeleteSpace() {
-            if (navigator.onLine === false) {
-                this.syncError = '删除云端空间需要在线：离线时无法确认删除结果';
-                this.renderSyncDialog();
-                return;
-            }
-            this.syncError = '';
-            this.setSyncState('confirm_delete');
-        }
-
-        /**
-         * 确认删除云端空间。
-         *
-         * 顺序与取舍：
-         *   ① 先挡住一切上传（`syncDeleting`）——删除与写在同一张表上串行，让删除
-         *      先落地才是有序的；
-         *   ② 带上**设备令牌 + 重新输入的口令**两个要素（服务端按令牌钉住空间、
-         *      按口令再验一次，所以「口令错」与「空间已删」是两件可分辨的事）；
-         *   ③ 结果不确定（网络错/5xx）**再试一次**：第二次若得 `space_deleted`，
-         *      就确认「原空间已不存在」——这就是设计要求的核对，不需要额外的查询接口；
-         *   ④ 任何失败都**保留连接**；任何路径都**不重建**空间（本轮没有一处调用创建）。
-         */
-        async confirmDeleteSpace() {
-            if (this.syncBusy || !this.syncConnection) return;
-            const input = document.getElementById('syncDeletePassphrase');
-            const passphrase = input ? input.value : '';
-            const verdict = this.validateSyncPassphrase(passphrase);
-            if (!verdict.ok) { this.syncError = verdict.reason; return this.renderSyncDialog(); }
-            this.syncBusy = true;
-            this.syncDeleting = true;
-            this.stopSyncTimers();
-            this.syncError = '';
-            this.renderSyncDialog();
-            const token = this.syncConnection.deviceToken;
-            let done = false;
-            let dead = '';
-            let halted = null;
-            let failure = '';
-            try {
-                const proof = await this.deriveSyncProof(passphrase);
-                for (let attempt = 0; attempt < 2 && !done; attempt++) {
-                    try {
-                        await API.post('/api/sync/space/delete', { proof }, { token });
-                        done = true;
-                    } catch (error) {
-                        if (error.code === 'space_deleted') { done = true; break; }   // 已经不存在了 = 目的达到
-                        if (error.code === 'proof_mismatch') { failure = '口令不正确，未删除任何内容'; break; }
-                        // 凭据已经不能用了（被撤销/过期/无效）：这条连接本身要按终态收尾，
-                        // 而不是挂着一把死令牌反复报「删除失败」。空间被停用或同步被总暂停
-                        // 则相反——连接还在，只是现在删不了，说清状态、留着连接等管理员恢复。
-                        const terminal = this.syncTerminalOf(error);
-                        if (terminal) {
-                            if (terminal.halt) { failure = terminal.message; halted = terminal.halt; } else dead = terminal.message;
-                            break;
-                        }
-                        if (error.status && error.status < 500) { failure = '删除失败：' + error.message; break; }
-                        // 网络错/5xx：结果不确定，再试一次；第二次的答案是确定的。
-                        if (attempt === 1) failure = '删除结果未能确认，请稍后重试';
-                    }
-                }
-            } catch (error) {
-                failure = '删除失败：' + error.message;
-            }
-            this.syncDeleting = false;
-            this.syncBusy = false;
-            if (done) {
-                // 与「停止同步」同样的本地断开；空间已经没了，不必再去撤销令牌。
-                await this.clearSyncConnection();
-                this.syncError = '';
-                this.setSyncState('disconnected');
-                this.showToast('云端空间已删除，本机导航已保留', 'success', 8000);
-            } else if (dead) {
-                // 删除没做成，但凭据已经废了：按终态断开（本地导航照旧保留），
-                // 用户拿到的是一句能指导下一步的话，而不是一个删不掉的对话框。
-                await this.clearSyncConnection(dead);
-                this.showToast(dead, 'error', 8000);
-            } else if (halted) {
-                // 说「已暂停」就要真的停：把 halt 落地（否则界面写着暂停、调度却照常恢复，
-                // 要等下一次轮询再撞 403/503 才真的停下）。
-                this.applySyncHalt(halted, failure);
-            } else {
-                this.syncError = failure || '删除失败';
-                // 失败保留连接，并把调度接回去（挡板已经撤了）。
-                this.startSyncPolling();
-                if (this.syncConnection && this.syncStatus !== 'conflict') this.setSyncStatus(this.syncSettledStatus());
-                // 删除一开始就停了全部定时器，可能把「刚改完还没到 2 秒上限」的那一轮
-                // 一起清掉了：那时页脚会写「同步中」而其实没有任何东西在传。按指纹补一次。
-                if (this.syncConnection && this.syncPayloadKey() !== this.syncUploadedPayloadKey) this.scheduleSyncUpload();
             }
             this.renderSyncDialog();
         }

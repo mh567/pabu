@@ -593,13 +593,9 @@ test('总暂停：读/写/连/建/重签一律 503 sync_paused（带 Retry-After
     // checkSpace 只回 exists/revision/entryCount（元数据，不含内容），不在冻结清单里。
     assert.equal(f.store.checkSpace({ proof }).exists, true);
 
-    // 「我要离开」与「我要删掉自己的东西」照常：挡住它们等于管理员一开总暂停就把用户锁在里面。
+    // 「我要离开」照常：挡住它等于管理员一开总暂停就把用户锁在一个不想再用的连接里。
     assert.equal(f.store.revokeDevice(other).success, true, '暂停期间撤销本设备照常');
     expectStatus(() => f.store.readConfig(other), (e) => e.status === 401 && e.code === 'device_revoked', '撤销真的生效了');
-    const removed = f.store.deleteSpace(created.deviceToken, { proof });
-    assert.equal(removed.success, true, '暂停期间删除空间照常');
-    assert.equal(removed.revoked, 1, '删除照常吊销该空间的设备');
-    assert.equal(f.store.checkSpace({ proof }).exists, false);
 
     // 解除暂停后一切照旧。
     f.store.updateSettings({ syncPaused: false });
@@ -717,8 +713,8 @@ test('清理顺序：已撤销设备行保留 24 小时；墓碑**必须在设�
     expectStatus(() => f.store.readConfig(b), (e) => e.status === 401 && e.code === 'device_invalid', '过了 24 小时两种都归「无效」——那一行已经没有信息量');
 
     // ④ 墓碑的清理：**顺序**是这条用例的重点。
-    // 用户删除空间（墓碑 + 全部设备被吊销）。
-    assert.equal(f.store.deleteSpace(a, { proof: await spaceProof('清理口令') }).success, true);
+    // 管理员删除空间（墓碑 + 全部设备被吊销）。
+    assert.equal(f.store.deleteSpaceAsAdmin(created.spaceId).success, true);
     const spaceId = created.spaceId;
     assert.equal(f.db.prepare('SELECT deleted FROM sync_spaces WHERE id = ?').get(spaceId).deleted, 1);
 

@@ -1012,13 +1012,17 @@ test('触摸拖拽必须长按满 400ms 才激活，且期间漂移超过 25px �
     assert.match(body, /HOLD_TOLERANCE = 25/, '漂移容忍 25px');
     // 不写 touch-action: none —— 写了书签网格就滚不动了
     const css = stripComments(stylesCss);
-    const editBlock = /\.grid\.is-editing \.bookmark\s*,\s*\.grid\.is-editing \.category-header\s*\{([^}]*)\}/
-        .exec(css);
-    assert.ok(editBlock, '编辑态书签卡与分类头有共享规则');
-    assert.doesNotMatch(editBlock[1], /touch-action\s*:\s*none/,
+    const bookmarkBlock = /\.grid\.is-editing \.bookmark\s*\{([^}]*)\}/.exec(css);
+    assert.ok(bookmarkBlock, '编辑态书签卡有自己的规则');
+    assert.doesNotMatch(bookmarkBlock[1], /touch-action\s*:\s*none/,
         '书签网格不能写 touch-action: none —— 那会让首页滚不动');
-    assert.match(editBlock[1], /user-select\s*:\s*none/, '编辑态关掉文字选中，否则长按先选中文字');
-    assert.match(editBlock[1], /-webkit-touch-callout\s*:\s*none/, '关掉 iOS 长按菜单');
+    assert.match(bookmarkBlock[1], /cursor\s*:\s*pointer/, '编辑态书签用可点击手势，不是拖拽手掌');
+    assert.match(bookmarkBlock[1], /user-select\s*:\s*none/, '编辑态关掉文字选中，否则长按先选中文字');
+    assert.match(bookmarkBlock[1], /-webkit-touch-callout\s*:\s*none/, '关掉 iOS 长按菜单');
+    const headerBlock = /\.grid\.is-editing \.category-header\s*\{([^}]*)\}/.exec(css);
+    assert.ok(headerBlock, '编辑态分类头有自己的规则');
+    assert.match(headerBlock[1], /cursor\s*:\s*grab/, '分类头仍然可拖拽');
+    assert.match(headerBlock[1], /user-select\s*:\s*none/, '分类头也关掉文字选中');
 });
 
 test('触摸拖拽只接触摸，鼠标仍走已验证的原生 DnD', () => {

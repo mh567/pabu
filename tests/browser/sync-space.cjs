@@ -1,12 +1,12 @@
 'use strict';
 // Run with Playwright available in NODE_PATH: node --test tests/browser/sync-space.cjs
 //
-// 口令空间：#9 的停止同步与删除云端空间（跨标签页取消调度、删除双要素、旧设备失效、
-// 同口令重建），用**真实的浏览器 + 真实的 HTTP 服务 + 真实的 IndexedDB**。
+// 口令空间：#9 的停止同步（跨标签页取消调度、本机导航保留），用**真实的浏览器
+// + 真实的 HTTP 服务 + 真实的 IndexedDB**。
 //
 // ⚠️ 两个「设备」的定义：同一 browser context 的两个 page = **同一台设备**（共享
 // IndexedDB，也就是那份带设备令牌的同步记录）；不同 context = 两台设备。停止同步
-// 只影响本设备，删除空间影响全部设备——这两条必须用对上下文类型才测得准。
+// 只影响本设备，必须用对上下文类型才测得准。删除云端空间只保留在管理端。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -49,9 +49,6 @@ async function device(browser, app, tabs = 1) {
 }
 
 const invite = async (app, cookie) => (await (await app.request('/api/admin/sync-invites', { cookie, body: {} })).json()).invite.code;
-const spaceCheck = async (app, proof) => (await (await app.request('/api/sync/space/check', { body: { proof } })).json());
-const proofOf = async passphrase => require('node:crypto').createHash('sha256')
-    .update(`pabu-space-connect-v1\u0000${passphrase}`).digest('hex');
 
 /** 关掉可能开着的同步对话框（用应用自己的方法，别去猜当前是哪个状态）。 */
 const closeDialog = page => page.evaluate(() => { if (window.app.syncDialogEl) window.app.closeSyncDialog(); });
@@ -95,7 +92,6 @@ const state = page => page.evaluate(async () => ({
 
 test('browser: 停止同步只在同一事务里断开本设备，另一标签页不刷新即取消调度且本机导航保留', async t => {
     const { app, browser, cookie } = await setup(t);
-    const proof = await proofOf(PASSPHRASE);
     const { context, page: first } = await device(browser, app);
     const created = await connect(first, { passphrase: PASSPHRASE, inviteCode: await invite(app, cookie) });
     assert.ok(created, '空间建好了');
@@ -142,65 +138,4 @@ test('browser: 停止同步只在同一事务里断开本设备，另一标签�
         assert.equal(refreshed.connected, false, '刷新后仍是未连接');
         assert.deepEqual(refreshed.categories, categoriesBefore, '刷新后导航仍在');
     }
-});
-
-test('browser: 删除云端空间要重新输口令；成功后本机导航保留、其他设备失效且各自不重建', async t => {
-    const { app, browser, cookie } = await setup(t);
-    const proof = await proofOf(PASSPHRASE);
-    const other = await device(browser, app);          // 另一台设备（独立 IndexedDB）
-    const owner = await device(browser, app);          // 发起删除的那台
-
-    const spaceId = await connect(owner.page, { passphrase: PASSPHRASE, inviteCode: await invite(app, cookie) });
-    await connect(other.page, { passphrase: PASSPHRASE, direction: 'pull' });
-    assert.equal((await state(other.page)).spaceId, spaceId, '两台设备连的是同一个空间');
-    const categoriesBefore = (await state(owner.page)).categories;
-
-    // ① 口令输错：拒绝、什么都不删、连接保留
-    await owner.page.locator('#syncBtn').click();
-    await owner.page.locator('#syncDelete').click();
-    await owner.page.locator('#syncDeletePassphrase').fill('Wrong-Pass-9999');
-    await owner.page.locator('#syncDeleteConfirm').click();
-    await owner.page.locator('.sync-error', { hasText: '口令不正确' }).waitFor();
-    assert.equal((await state(owner.page)).connected, true, '口令错必须保留连接');
-    assert.equal((await spaceCheck(app, proof)).exists, true, '空间原样');
-
-    // ② 口令正确：删除
-    await owner.page.locator('#syncDeletePassphrase').fill(PASSPHRASE);
-    await owner.page.locator('#syncDeleteConfirm').click();
-    await owner.page.waitForFunction(() => window.app.syncConnection === null, null, { timeout: 8000 });
-    const afterDelete = await state(owner.page);
-    assert.equal(afterDelete.label, '同步');
-    assert.deepEqual(afterDelete.categories, categoriesBefore, '本机导航保留');
-    assert.equal((await spaceCheck(app, proof)).exists, false, '云端空间已删');
-
-    // ③ 另一台设备的下一次检查：判为终态、断开、保留本地、**不自动重建**
-    await other.page.evaluate(() => window.dispatchEvent(new Event('online')));
-    await other.page.waitForFunction(() => window.app.syncConnection === null, null, { timeout: 8000 });
-    const otherAfter = await state(other.page);
-    assert.equal(otherAfter.label, '同步');
-    assert.deepEqual(otherAfter.categories, categoriesBefore, '另一台设备的导航也保留');
-    assert.equal((await spaceCheck(app, proof)).exists, false, '另一台设备没有偷偷重建空间');
-    // 通知里说清是「已被删除」而不是笼统的连接失效
-    await other.page.locator('#syncBtn').click();
-    await other.page.locator('#syncPassphrase').waitFor();
-});
-
-test('browser: 同口令重建得到新空间 id 与新代次，旧设备令牌够不到新空间', async t => {
-    const { app, browser, cookie } = await setup(t);
-    const proof = await proofOf(PASSPHRASE);
-    const deviceA = await device(browser, app);
-
-    const first = await connect(deviceA.page, { passphrase: PASSPHRASE, inviteCode: await invite(app, cookie) });
-    const firstGeneration = (await state(deviceA.page)).generation;
-    await deviceA.page.locator('#syncBtn').click();
-    await deviceA.page.locator('#syncDelete').click();
-    await deviceA.page.locator('#syncDeletePassphrase').fill(PASSPHRASE);
-    await deviceA.page.locator('#syncDeleteConfirm').click();
-    await deviceA.page.waitForFunction(() => window.app.syncConnection === null, null, { timeout: 8000 });
-
-    const second = await connect(deviceA.page, { passphrase: PASSPHRASE, inviteCode: await invite(app, cookie) });
-    const rebuilt = await state(deviceA.page);
-    assert.notEqual(second, first, '新空间换了 id');
-    assert.ok(rebuilt.generation > firstGeneration, `代次要往上走（${firstGeneration} → ${rebuilt.generation}）`);
-    assert.equal(rebuilt.label, '已同步', '重建后可用');
 });

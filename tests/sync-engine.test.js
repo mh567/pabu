@@ -53,7 +53,7 @@ const METHODS = [
     'onSyncVisibilityChange', 'onSyncOnline', 'onSyncOffline', 'notifySyncPeers', 'resolveSyncConflict', 'clearSyncConnection',
     'writeSyncWithEpochRetry', 'refreshSyncRecord', 'stopSyncLocal', 'syncTerminalOf', 'handleSyncTerminal', 'applySyncHalt', 'retrySyncAfterHalt',
     'canRunOrdinarySync', 'syncContextSnapshot', 'syncContextHeld', 'waitForSession',
-    'confirmStopSync', 'requestDeleteSpace', 'confirmDeleteSpace', 'openSyncDialog',
+    'confirmStopSync', 'openSyncDialog',
     'finishSyncConnection', 'persistSyncConnection', 'writeCloudConfig', 'syncCheckQuiet',
     'deriveSyncProof', 'validateSyncPassphrase'
 ];
@@ -161,10 +161,9 @@ function makeHarness(options = {}) {
         // 这样普通同步能跑；要测门的用例自己把这几个字段改掉。
         identityPending: false,
         sessionProbe: null,
-        // #9：删除挡板（删除期间暂停上传）与停用挡板（空间被管理员停用后不再自动重试）
+        // #9：停用挡板（空间被管理员停用后不再自动重试）
         // #10：停用挡板记住的是**哪一种暂停**（`'disabled' | 'paused'`），未暂停时是 null
         // ——与 public/app.js 的初始值逐字一致，别在这里造出 `false` 这种真代码不会有的值。
-        syncDeleting: false,
         syncHalted: null,
         syncUploadedPayloadKey: 'k7',   // 与当前内容指纹一致 = 内容已经传上去过
         syncUploadSettled: false,
@@ -215,10 +214,7 @@ function makeHarness(options = {}) {
     };
     const documentStub = {
         hidden: false,
-        querySelector: () => (options.openDialog ? {} : null),
-        // 删除确认框里的口令输入：用例通过 `options.deletePassphrase` 提供。
-        getElementById: id => (id === 'syncDeletePassphrase' && options.deletePassphrase !== undefined
-            ? { value: options.deletePassphrase } : null)
+        querySelector: () => (options.openDialog ? {} : null)
     };
     const navigatorStub = { onLine: options.onLine !== false };
     // 口令派生走真实现（`deriveSyncProof` + 真的 SHA-256），所以 window.crypto
@@ -686,7 +682,7 @@ test('清除连接会递增本机连接代次，之后旧连接的响应一律�
     assert.equal(h.localStore.snapshot().revision, recordAfterClear, '旧响应不许再写记录');
 });
 
-// ==================== #9：停止同步与删除云端空间 ====================
+// ==================== #9：停止同步 ====================
 
 test('停止同步：一次事务递增连接代次并清掉凭据与待上传，本地导航与替换前的副本留下', async () => {
     const recovery = { direction: 'cloud', savedAt: 5, config: { theme: 'dark' }, modules: { enabled: [], widgets: [], settings: {} } };
@@ -756,71 +752,14 @@ test('别的标签页停止后，本标签页迟到的落盘被拒，凭据不�
     assert.equal(h2.localStore.snapshot().connEpoch, seed2.connEpoch + 1, '代次没有被倒回去');
 });
 
-test('删除期间暂停上传：脏标记与排程都不生效', async () => {
+test('空间停用开始时已经排好的那一轮，到期也不许发出去', async () => {
     const h = makeHarness();
-    h.app.syncDeleting = true;
     h.app.markSyncDirty();
-    h.app.scheduleSyncUpload();
-    assert.equal(h.clock.pending(), 0, '删除期间不排任何上传定时器');
-    await h.app.startSyncUpload();
-    assert.equal(h.calls.posts.length, 0, '删除期间一次请求都不发');
-});
-
-test('删除/停用开始时已经排好的那一轮，到期也不许发出去', async () => {
-    const h = makeHarness();
-    // 先排一轮（模拟「用户刚改完，500ms 防抖还没到，接着点了删除」）
-    h.app.markSyncDirty();
-    const scheduled = h.clock.pending();
-    assert.ok(scheduled > 0, '删除前确实排着上传');
-    h.app.syncDeleting = true;
+    assert.ok(h.clock.pending() > 0);
+    h.app.syncHalted = true;
     // 让定时器到期：排程那一刻的守卫挡不住这一轮，得靠发请求那一处的守卫。
     await h.clock.advance(1000);
-    assert.equal(h.calls.posts.length, 0, '删除期间到期的那一轮不许发请求');
-    // 空间被停用同理（停用不停在排程那一刻，而是发请求那一刻）。
-    const h2 = makeHarness();
-    h2.app.markSyncDirty();
-    assert.ok(h2.clock.pending() > 0);
-    h2.app.syncHalted = true;
-    await h2.clock.advance(1000);
-    assert.equal(h2.calls.posts.length, 0, '空间停用后到期的那一轮不许发请求');
-});
-
-test('删除云端空间：第一次网络不确定，第二次拿到「已删除」就按删除收尾（不重建）', async () => {
-    let attempt = 0;
-    const recovery = { direction: 'local', savedAt: 11, config: { theme: 'light' }, modules: {} };
-    const h = makeHarness({
-        deletePassphrase: 'Correct-Passphrase-1',
-        record: seedRecord({ recovery }),
-        // 第 1 次网络错（结果不确定），第 2 次明确回答「空间已不存在」——
-        // 这就是设计要求的那次核对，不需要额外的查询接口。
-        post: () => {
-            attempt++;
-            if (attempt === 1) throw Object.assign(new Error('网络中断'), { status: 0 });
-            throw Object.assign(new Error('云端空间已被删除'), { status: 410, code: 'space_deleted' });
-        }
-    });
-    const localRevisionBefore = h.app.localRevision;
-    await h.app.confirmDeleteSpace();
-    assert.equal(attempt, 2, '结果不确定要再试一次');
-    assert.equal(h.localStore.snapshot().connection, null, '核对确认已删除 → 本地断开');
-    assert.deepEqual(h.localStore.snapshot().recovery, recovery, '本机保留的副本留下');
-    assert.equal(h.app.localRevision, localRevisionBefore, '本地导航不动');
-    assert.equal(h.calls.posts.filter(p => p.url === '/api/sync/space/create').length, 0, '任何路径都不重建空间');
-    assert.equal(h.app.syncError, '', '收尾不留错误提示');
-});
-
-test('删除云端空间：口令不正确就保留连接，什么都不删', async () => {
-    const h = makeHarness({
-        deletePassphrase: 'Wrong-Passphrase-1',
-        post: () => { throw Object.assign(new Error('口令不正确，未删除任何内容'), { status: 403, code: 'proof_mismatch' }); }
-    });
-    await h.app.confirmDeleteSpace();
-    assert.equal(h.localStore.snapshot().connection !== null, true, '口令错不能断开连接');
-    assert.match(h.app.syncError, /口令不正确/);
-    assert.equal(h.calls.posts.filter(p => p.url === '/api/sync/space/delete').length, 1, '口令错不重试（重试没有意义）');
-    assert.equal(h.app.syncDeleting, false, '失败后挡板要撤掉，否则上传永远停摆');
-    // 失败分支**也不能**去建新空间（否则「拒绝创建就不该触发错误重建」这条就落空了）
-    assert.equal(h.calls.posts.filter(p => p.url === '/api/sync/space/create').length, 0, '失败路径不重建空间');
+    assert.equal(h.calls.posts.length, 0, '空间停用后到期的那一轮不许发请求');
 });
 
 test('空间被管理员停用：保留连接、停自动重试，本地编辑不再排上传', async () => {
@@ -903,29 +842,6 @@ test('另一个标签页刚停止时，本标签页的连接不会被写回去�
     assert.match(h.app.syncError, /其它标签页/, '要告诉用户重来一次，而不是笼统的失败');
 });
 
-test('删除时凭据已经失效：按终态断开，不是挂着一把死令牌反复报「删除失败」', async () => {
-    const h = makeHarness({
-        deletePassphrase: 'Correct-Passphrase-1',
-        post: () => { throw Object.assign(new Error('设备凭据无效'), { status: 401, code: 'device_invalid' }); }
-    });
-    await h.app.confirmDeleteSpace();
-    assert.equal(h.localStore.snapshot().connection, null, '死令牌要按终态断开');
-    assert.ok(h.calls.toasts.some(t => /重新输入口令/.test(t.message)), '给的是能指导下一步的话');
-    assert.equal(h.app.syncDeleting, false);
-});
-
-test('删除时空间被停用：保留连接、说清状态（不把「现在删不了」当成凭据失效）', async () => {
-    const h = makeHarness({
-        deletePassphrase: 'Correct-Passphrase-1',
-        post: () => { throw Object.assign(new Error('该空间已停用'), { status: 403, code: 'space_disabled' }); }
-    });
-    await h.app.confirmDeleteSpace();
-    assert.equal(h.localStore.snapshot().connection !== null, true, '停用不等于断开');
-    assert.match(h.app.syncError, /停用/);
-    assert.equal(h.app.syncHalted, 'disabled', '说了「已暂停」就要真的停下来（否则调度照常恢复，要等下一轮再撞 403）；#10 起还要记住是哪一种暂停');
-    assert.equal(h.clock.intervals(), 0, '轮询也要停');
-});
-
 test('空间被停用后管理员恢复：点一次「立即同步」就解除挡板，停用期间的改动重新上传', async () => {
     let mode = 'disabled';
     const h = makeHarness({
@@ -986,18 +902,6 @@ test('本机断开落盘失败：不抛出去、明确说「断开未保存」�
     assert.equal(token, 'tok'.repeat(20));
     assert.match(h.app.syncError, /本机断开未保存/, '要说出来，别假装断开成功');
     assert.equal(h.app.syncConnEpoch, 0, '没写成功就不该动内存代次');
-});
-
-test('删除失败后把被清掉的那一轮上传接回来（否则页脚写「同步中」却没人传）', async () => {
-    const h = makeHarness({
-        deletePassphrase: 'Wrong-Passphrase-1',
-        post: () => { throw Object.assign(new Error('口令不正确，未删除任何内容'), { status: 403, code: 'proof_mismatch' }); }
-    });
-    h.app.syncUploadedPayloadKey = 'stale';   // 本机有未上传内容
-    await h.app.confirmDeleteSpace();
-    // ⚠️ 断言要指名**上传**的定时器：`clock.pending()` 把轮询的 interval 也算进去，
-    // 「只把轮询接回来、没补排上传」那种缺陷照样能通过（本仓库对守卫能变红的要求）。
-    assert.ok(h.app.syncDebounceTimer || h.app.syncMaxWaitTimer, '失败后要按指纹补排一次上传');
 });
 
 test('收到别的标签页的停止通知：停表、回到未连接（不刷新页面）', async () => {
