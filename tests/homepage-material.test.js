@@ -1324,6 +1324,14 @@ test('底栏入口顺序固定，外观只给管理员，管理入口不在一�
     assert.match(appCode, /if \(sep\) sep\.hidden = hidden/, '外观分隔符跟随外观入口');
 });
 
+test('管理员登录后同步入口仍保留，点击时说明服务端导航', () => {
+    const entry = methodBodyOf(appCode, 'syncAppearanceEntry(hidden) {');
+    assert.doesNotMatch(entry, /sync\.hidden/, '同步入口不能随管理员登录隐藏');
+    const open = methodBodyOf(appCode, 'async openSyncDialog() {');
+    assert.match(open, /if \(this\.authenticated\)/, '管理员点击同步先给出说明');
+    assert.match(open, /当前查看的是站点导航/, '说明管理员与口令同步的区别');
+});
+
 test('本机主题的键名在 index.html 与 app.js 两处一致', () => {
     const keyInApp = appCode.match(/const THEME_STORAGE_KEY = '([^']+)'/);
     const keyInHtml = indexCode.match(/localStorage\.getItem\('([^']+)'\)/);

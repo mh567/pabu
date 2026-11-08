@@ -44,21 +44,21 @@ async function logout(page) {
     await page.waitForURL(url => !url.pathname.startsWith('/admin'));
 }
 
-test('browser: two clean devices share administrator navigation, retain independent ordinary data and independent sessions', async t => {
+test('browser: two clean devices share site navigation, retain independent ordinary data and independent sessions', async t => {
     const { a, b } = await setup(t);
     await category(a, 'Ordinary A'); await saveEdit(a);
     await category(b, 'Ordinary B'); await saveEdit(b);
     await login(a); await login(b);
     assert.equal(await heading(a, 'Ordinary A').count(), 0);
-    await category(a, 'Shared administrator'); await saveEdit(a);
-    await a.getByText('编辑已保存', { exact: true }).waitFor();
+    await category(a, 'Shared site'); await saveEdit(a);
+    await a.getByText('站点导航已保存并发布', { exact: true }).waitFor();
     const start = Date.now(); await check(b);
-    await heading(b, 'Shared administrator').waitFor();
+    await heading(b, 'Shared site').waitFor();
     assert.ok(Date.now() - start < 2000);
     await logout(a);
     await heading(a, 'Ordinary A').waitFor();
-    assert.equal(await heading(a, 'Shared administrator').count(), 0);
-    await check(b); await heading(b, 'Shared administrator').waitFor();
+    assert.equal(await heading(a, 'Shared site').count(), 0);
+    await check(b); await heading(b, 'Shared site').waitFor();
     assert.equal(await b.locator('#modeBtn').isVisible(), true);
     await logout(b); await heading(b, 'Ordinary B').waitFor();
 });
@@ -68,14 +68,14 @@ test('browser: remote updates preserve drafts, conflict saves retain drafts, can
     await login(a); await login(b);
     await category(b, 'Local draft');
     await category(a, 'Remote saved'); await saveEdit(a);
-    await a.getByText('编辑已保存', { exact: true }).waitFor();
+    await a.getByText('站点导航已保存并发布', { exact: true }).waitFor();
     await check(b);
-    await b.getByText(/服务器配置已更新，当前草稿已保留/).waitFor();
+    await b.getByText(/站点导航已更新，当前草稿已保留/).waitFor();
     await heading(b, 'Local draft').waitFor();
     await saveEdit(b);
     await b.getByText(/草稿已保留；可取消编辑/).waitFor();
-    // 管理员的保存入口在底栏，编辑态下由「编辑」换成「保存编辑」
-    assert.equal(await b.locator('#localDoneBtn').textContent(), '保存编辑');
+    // 管理员的保存入口在底栏，编辑态下由「编辑」换成「保存并发布」
+    assert.equal(await b.locator('#localDoneBtn').textContent(), '保存并发布');
     await heading(b, 'Local draft').waitFor();
     await b.keyboard.press('Escape');
     await b.locator('.ui-dialog button[type="submit"]').click();
@@ -83,12 +83,12 @@ test('browser: remote updates preserve drafts, conflict saves retain drafts, can
     assert.equal(await heading(b, 'Local draft').count(), 0);
 });
 
-test('browser: network errors preserve identity, expiration hides private draft and relogin restores its original revision', async t => {
+test('browser: network errors preserve identity, expiration hides the site draft and relogin restores its original revision', async t => {
     const { app, a } = await setup(t);
-    await login(a); await category(a, 'Retained private draft');
+    await login(a); await category(a, 'Retained site draft');
     await a.route('**/api/session', route => route.abort());
     await check(a); await a.getByText('暂时无法同步，联网后重试', { exact: true }).waitFor();
-    await heading(a, 'Retained private draft').waitFor();
+    await heading(a, 'Retained site draft').waitFor();
     await a.unroute('**/api/session');
     // Revoke this device through the actual public logout endpoint.
     await a.evaluate(async () => { await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pabu-Request': '1' }, body: '{}' }); });
@@ -96,17 +96,17 @@ test('browser: network errors preserve identity, expiration hides private draft 
     await a.getByText('登录已失效', { exact: true }).waitFor();
     assert.equal(await a.locator('#appearanceBtn').isDisabled(), true);
     assert.equal(await a.locator('#engineBtn').isDisabled(), true);
-    assert.equal(await heading(a, 'Retained private draft').count(), 0);
+    assert.equal(await heading(a, 'Retained site draft').count(), 0);
     assert.equal(await a.locator('#modeBtn').isVisible(), false);
     await a.locator('.ui-dialog button[type="submit"]').click();
     await a.locator('.ui-dialog input[type="password"]').fill('StrongPass123!');
     await a.locator('.ui-dialog button[type="submit"]').click();
     await a.locator('#modal').waitFor({ state: 'visible' });
     await a.locator('#cancelBtn').click();
-    await heading(a, 'Retained private draft').waitFor();
+    await heading(a, 'Retained site draft').waitFor();
     await saveEdit(a);
-    await a.getByText('编辑已保存', { exact: true }).waitFor();
-    await a.reload(); await heading(a, 'Retained private draft').waitFor();
+    await a.getByText('站点导航已保存并发布', { exact: true }).waitFor();
+    await a.reload(); await heading(a, 'Retained site draft').waitFor();
 });
 
 test('browser: visible administrator device receives a saved update within the 32 second polling target', async t => {
@@ -115,7 +115,7 @@ test('browser: visible administrator device receives a saved update within the 3
     // Save immediately after a natural polling response to exercise the longest wait.
     await b.waitForResponse(response => response.url().endsWith('/api/session'), { timeout: 32000 });
     await category(a, 'Periodic update'); await saveEdit(a);
-    await a.getByText('编辑已保存', { exact: true }).waitFor();
+    await a.getByText('站点导航已保存并发布', { exact: true }).waitFor();
     const start = Date.now();
     await heading(b, 'Periodic update').waitFor({ timeout: 32500 });
     const elapsed = Date.now() - start;
@@ -123,13 +123,13 @@ test('browser: visible administrator device receives a saved update within the 3
     console.log(`visible polling propagation: ${elapsed} ms`);
 });
 
-test('browser: shared-cookie tabs handle ordinary drafts before login and retain administrator drafts on another tab logout', async t => {
+test('browser: shared-cookie tabs handle ordinary drafts before login and retain site drafts on another tab logout', async t => {
     const { app, a, first } = await setup(t);
     const tab = await first.newPage(); tab.setDefaultTimeout(8000);
     await tab.goto(app.base); await tab.locator('#app').waitFor({ state: 'visible' });
     await category(tab, 'Ordinary tab data');
     await login(a);
-    await tab.getByText(/管理员会话已确认，请完成当前编辑/).waitFor();
+    await tab.getByText(/站点导航会话已确认，请完成当前编辑/).waitFor();
     await heading(tab, 'Ordinary tab data').waitFor();
     await saveEdit(tab);
     await tab.locator('#modeBtn').waitFor({ state: 'visible' });
@@ -144,7 +144,7 @@ test('browser: shared-cookie tabs handle ordinary drafts before login and retain
     assert.equal(await tab.locator('#modeBtn').isVisible(), false);
 });
 
-test('browser: personal engine definitions propagate and a late administrator response cannot replace the ordinary context after logout', async t => {
+test('browser: site engine definitions propagate and a late administrator response cannot replace the ordinary context after logout', async t => {
     const { a, b } = await setup(t);
     await category(a, 'Ordinary late-response baseline'); await saveEdit(a);
     await login(a); await login(b);
@@ -154,7 +154,7 @@ test('browser: personal engine definitions propagate and a late administrator re
     await engine.locator('[data-field="name"]').fill('Synced engine');
     await engine.locator('[data-field="url"]').fill('https://example.com/?q=');
     await a.locator('#saveBtn').click();
-    await a.getByText('设置已保存到服务器', { exact: true }).waitFor();
+    await a.getByText('站点导航设置已保存', { exact: true }).waitFor();
     await check(b);
     await b.goto(new URL('/admin', b.url()).href);
     await b.locator('[aria-controls="enginesSection"]').click();

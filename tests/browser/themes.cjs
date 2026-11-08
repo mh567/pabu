@@ -35,7 +35,7 @@ async function saveAdmin(page) {
     const response = page.waitForResponse(r => r.url().endsWith('/api/admin/navigation') && r.request().method() === 'POST');
     await page.locator('#saveBtn').click();
     assert.equal((await response).status(), 200);
-    await page.getByText('设置已保存到服务器', { exact: true }).waitFor();
+    await page.getByText('站点导航设置已保存', { exact: true }).waitFor();
     await page.goto(new URL('/', page.url()).href);
     await page.locator('#app').waitFor({ state: 'visible' });
 }

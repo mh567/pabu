@@ -197,7 +197,7 @@ test('browser: storage failure reports unsaved state and keeps the previous comm
     assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
 });
 
-test('browser: delayed administrator confirmation preserves ordinary drafts and never writes private configuration locally', async t => {
+test('browser: delayed administrator confirmation preserves ordinary drafts and never writes site navigation locally', async t => {
     const fs = require('node:fs'), path = require('node:path'), bcrypt = require('bcrypt');
     const app = await installation(t);
     fs.writeFileSync(path.join(app.dir, '.admin-password.json'), JSON.stringify({ passwordHash: await bcrypt.hash('StrongPass123!', 4) }));
@@ -214,7 +214,7 @@ test('browser: delayed administrator confirmation preserves ordinary drafts and 
         const response = await fetch('/api/verify-password', { method: 'POST', headers: { 'X-Admin-Password': 'StrongPass123!', 'X-Pabu-Request': '1', 'Content-Type': 'application/json' }, body: '{}' });
         if (!response.ok) throw new Error('login failed');
         const data = await (await fetch('/api/admin/navigation')).json();
-        data.config.categories[0].name = 'PRIVATE ADMIN NAVIGATION';
+        data.config.categories[0].name = 'SITE NAVIGATION';
         const result = await fetch('/api/admin/navigation', { method: 'POST', headers: { 'X-Pabu-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ config: data.config, revision: data.revision, operationId: 'browser-admin-setup' }) });
         if (!result.ok) throw new Error('admin setup failed');
     });
@@ -223,14 +223,14 @@ test('browser: delayed administrator confirmation preserves ordinary drafts and 
     await page.route('**/api/session', async route => { const response = await route.fetch(); await delayed; await route.fulfill({ response }); });
     await page.reload();
     await page.locator('#app').waitFor({ state: 'visible' });
-    assert.equal(await page.getByRole('heading', { name: 'PRIVATE ADMIN NAVIGATION', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).count(), 0);
     await settings(page, { engines: true });
     await engines(page, [{ id: 'ordinary', name: 'Ordinary engine', url: 'https://ordinary.example/?q=' }], 'ordinary');
     release();
     await page.waitForFunction(() => document.querySelector('#localNavigationStatus').textContent.includes('完成当前编辑'));
     assert.match(await page.getByLabel('引擎 1 名称', { exact: true }).inputValue(), /Ordinary engine/);
     await page.locator('#localDoneBtn').click();
-    await page.getByRole('heading', { name: 'PRIVATE ADMIN NAVIGATION', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).waitFor();
     assert.equal(await page.locator('#localNavigationTools').isVisible(), false);
     await page.route('**/api/admin/navigation', route => route.abort());
     await page.reload();
@@ -242,10 +242,10 @@ test('browser: delayed administrator confirmation preserves ordinary drafts and 
     await page.reload();
     await page.getByRole('heading', { name: 'Ordinary kept', exact: true }).waitFor();
     assert.equal(await page.locator('#engineName').textContent(), 'Ordinary engine');
-    assert.equal(await page.getByRole('heading', { name: 'PRIVATE ADMIN NAVIGATION', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('heading', { name: 'SITE NAVIGATION', exact: true }).count(), 0);
 });
 
-test('browser and HTTP: publishing a new default leaves existing local data unchanged; reset fetches the new default', async t => {
+test('browser and HTTP: saving new site navigation leaves existing local data unchanged; reset fetches the new site navigation', async t => {
     const fs = require('node:fs'), path = require('node:path'), bcrypt = require('bcrypt');
     const app = await installation(t);
     fs.writeFileSync(path.join(app.dir, '.admin-password.json'), JSON.stringify({ passwordHash: await bcrypt.hash('StrongPass123!', 4) }));
@@ -257,23 +257,21 @@ test('browser and HTTP: publishing a new default leaves existing local data unch
     const originalHeading = await page.locator('#grid h2').first().textContent();
     const login = await app.request('/api/verify-password', { password: 'StrongPass123!', body: {} });
     const cookie = login.headers.get('set-cookie').split(';')[0];
-    const template = await (await app.request('/api/admin/default-homepage', { cookie })).json();
-    template.config.categories[0].name = 'New published default';
-    let response = await app.request('/api/admin/default-homepage/draft', { cookie, body: { config: template.config, revision: template.revision, operationId: 'browser-new-default' } });
-    assert.equal(response.status, 200); const draft = await response.json();
-    response = await app.request('/api/admin/default-homepage/publish', { cookie, body: { revision: draft.revision, publishedRevision: template.publishedRevision, operationId: 'browser-publish' } });
+    const site = await (await app.request('/api/admin/navigation', { cookie })).json();
+    site.config.categories[0].name = 'New site navigation';
+    const response = await app.request('/api/admin/navigation', { cookie, body: { config: site.config, revision: site.revision, operationId: 'browser-site-update' } });
     assert.equal(response.status, 200);
     await page.reload(); await page.locator('#app').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#grid h2').first().textContent(), originalHeading);
     const freshContext = await browser.newContext(); const fresh = await freshContext.newPage();
     await fresh.goto(app.base);
-    await fresh.getByRole('heading', { name: 'New published default', exact: true }).waitFor();
+    await fresh.getByRole('heading', { name: 'New site navigation', exact: true }).waitFor();
     await freshContext.close();
     await settings(page, { data: true }); await page.locator('#localResetBtn').click();
     await page.locator('.ui-dialog [data-action="cancel"]').click();
     assert.equal(await page.locator('#grid h2').first().textContent(), originalHeading);
     await settings(page, { data: true }); await page.locator('#localResetBtn').click(); await submit(page); await saved(page);
-    assert.equal(await page.locator('#grid h2').first().textContent(), 'New published default');
+    assert.equal(await page.locator('#grid h2').first().textContent(), 'New site navigation');
     await settings(page, { engines: true });
     await page.screenshot({ path: '/tmp/pabu-settings.png', fullPage: true });
 });

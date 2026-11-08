@@ -1071,7 +1071,7 @@ test('额度拒绝（503 space_quota_exceeded）：不排退避、不丢 pending
 
 test('迟到的拉取不能把管理员配置写进普通同步记录（落盘点要比上下文代次）', async () => {
     // 真实缺陷：只在**入口**判 authenticated，而响应回来时已经是管理员上下文——
-    // 于是管理员个人导航被写进普通记录的 `recovery`（验收明令禁止的那一条）。
+    // 于是站点导航被写进普通记录的 `recovery`（验收明令禁止的那一条）。
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     const h = makeHarness({ get: async () => { await gate; return cloudOf({ theme: 'dark', revision: 9, categories: [{ id: 'admin', name: '管理员分类', bookmarks: [] }] }); } });

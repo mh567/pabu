@@ -44,6 +44,8 @@ async function ready(t) {
         spaces: (cookie) => app.request('/api/admin/sync-spaces', { cookie }),
         disable: (cookie, id, disabled) => app.request(`/api/admin/sync-spaces/${id}/disable`, { cookie, body: { disabled } }),
         adminDelete: (cookie, id) => app.request(`/api/admin/sync-spaces/${id}/delete`, { cookie, body: {} }),
+        setNote: (cookie, id, note) => app.request(`/api/admin/sync-spaces/${id}/note`, { cookie, body: { note } }),
+        adminReset: (cookie, id) => app.request(`/api/admin/sync-spaces/${id}/reset-devices`, { cookie, body: {} }),
         settings: (cookie) => app.request('/api/admin/sync-settings', { cookie }),
         setPolicy: (cookie, body) => app.request('/api/admin/sync-settings', { cookie, body }),
         // 同步管理 tab 的服务端：分页/筛选/排序 + 批量邀请码
@@ -589,6 +591,55 @@ test('HTTP: 空间列表只回非敏感项——正文/口令哈希/令牌/回�
     ]) {
         assert.equal(raw.includes(needle), false, `列表不得出现${label}`);
     }
+});
+
+test('HTTP: 管理员编辑备注与重置设备只动元数据，不泄露正文或凭据', async (t) => {
+    const f = await ready(t);
+    const cookie = await f.admin();
+    const proof = await spaceProof('备注与重置口令');
+    const created = await (await f.create(proof, (await f.newInvite(cookie)).code)).json();
+    const second = (await (await f.connect(proof, 'note-device-b')).json()).deviceToken;
+
+    let res = await f.setNote(cookie, created.spaceId, '客户甲');
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).note, '客户甲');
+    let list = await (await f.spaces(cookie)).json();
+    assert.equal(list.spaces[0].note, '客户甲');
+    assert.equal((await f.setNote(cookie, created.spaceId, 'x'.repeat(101))).status, 400);
+    assert.equal((await f.setNote(cookie, created.spaceId, 42)).status, 400);
+
+    const before = list.spaces[0];
+    res = await f.adminReset(cookie, created.spaceId);
+    assert.equal(res.status, 200);
+    const reset = await res.json();
+    assert.equal(reset.revoked, 2);
+    assert.equal(reset.generation, before.generation + 1);
+
+    for (const token of [created.deviceToken, second]) {
+        const read = await f.read(token);
+        assert.equal(read.status, 401);
+        assert.equal((await read.json()).code, 'device_revoked');
+    }
+
+    list = await (await f.spaces(cookie)).json();
+    assert.equal(list.spaces[0].revision, before.revision, '正文版本不变');
+    assert.equal(list.spaces[0].contentBytes, before.contentBytes, '存储占用不变');
+    assert.equal(list.spaces[0].activeDevices, 0, '所有设备已撤销');
+    assert.equal(list.spaces[0].generation, reset.generation);
+
+    const raw = JSON.stringify(reset);
+    for (const [label, needle] of [
+        ['正文片段', 'searchEngines'],
+        ['口令证明', proof],
+        ['设备令牌 A', created.deviceToken],
+        ['设备令牌 B', second]
+    ]) {
+        assert.equal(raw.includes(needle), false, `重置响应不得出现${label}`);
+    }
+
+    assert.equal((await f.adminDelete(cookie, created.spaceId)).status, 200);
+    assert.equal((await f.setNote(cookie, created.spaceId, '已删除')).status, 410);
+    assert.equal((await f.adminReset(cookie, created.spaceId)).status, 410);
 });
 
 test('HTTP: 停用某空间 → 设备读到 403 且**连接保留**；重新启用后同一个令牌立刻可用', async (t) => {

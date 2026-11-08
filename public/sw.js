@@ -1,4 +1,4 @@
-const CACHE = 'pabu-v4';
+const CACHE = 'pabu-v5';
 const ASSETS = [
     '/', '/index.html', '/styles.css', '/admin.css', '/themes.css',
     '/fonts/inter-tight-latin-variable.woff2', '/app.js',

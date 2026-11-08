@@ -327,21 +327,16 @@
             // 远程备份区块：配置缓存 + 「有没有渲染进当前这块 DOM」的闩锁。
             // 判据必须是后者。面板每次 openAdmin / 重渲染都会重建 #modalBody，
             this.editLayout = false;
-            // 编辑会话的草稿快照：进入编辑模式时对 config 与 widgets 各存一份，
-            // 「保存编辑」才落盘，Esc/退出则整体丢弃。
+            // 编辑会话的草稿快照：进入编辑模式时对 config 存一份，
+            // 「保存并发布」才落盘，Esc/退出则整体丢弃。
             this.editSession = null;
-            // 站点默认首页的草稿与网格表面：面板打开时才建立，退出登录时清空。
-            // 显式初始化，不靠 undefined 参与判断（本文件既有纪律）。
-            this.template = null;
-            this.templateSurface = null;
             // 网格上一次渲染时是否处于编辑态。显式初始化而不是靠 undefined
             // 与 false 的隐式比较：syncEditLayoutUI 靠它判断「状态真的翻转了」，
             // 而 undefined !== false 成立纯属巧合。
             this._gridEditing = false;
             // 同一帧内多次纵向重排请求合并成一个（见 requestWidgetStack）。
             // 与 _gridEditing 同理显式初始化，不靠 undefined 的隐式比较。
-            // 首页网格的编辑表面。后台「站点默认首页」编辑器会另建一份，
-            // 两份的配置互不共享（见 gridSurface 的注释）。
+            // 首页网格的编辑表面，配置来自 this.config。
             this.homeSurface = this.gridSurface({
                 getConfig: () => this.config,
                 isEditing: () => this.editLayout,
@@ -385,24 +380,24 @@
             const save = $('#localDoneBtn');
             if (save) {
                 save.hidden = !editing;
-                save.textContent = this.authenticated ? '保存编辑' : '保存配置';
-                save.title = this.authenticated ? '保存全部改动并退出编辑' : '保存导航设置并退出编辑';
+                save.textContent = this.authenticated ? '保存并发布' : '保存配置';
+                save.title = this.authenticated ? '保存站点导航并退出编辑' : '保存导航设置并退出编辑';
             }
         }
 
-        /** 外观入口只给管理员，它的分隔符必须跟着一起显隐，否则剩下一个悬空「·」。 */
+        /**
+         * 外观入口只给管理员，它的分隔符必须跟着一起显隐，否则剩下一个悬空「·」。
+         * 同步入口始终保留：管理员登录后点击会说明服务端导航与口令同步的区别，
+         * 不再让外观顶替它的位置。
+         */
         syncAppearanceEntry(hidden) {
             const btn = $('#appearanceBtn');
             const sep = $('#appearanceSep');
             if (btn) btn.hidden = hidden;
             if (sep) sep.hidden = hidden;
-            // 口令同步是**普通访客**的功能（管理员走服务端管理员配置，不需要口令），
-            // 所以它与「外观」正好相反：这里传进来的 hidden 是「不是管理员」。
-            const sync = $('#syncBtn');
             const syncSep = $('#syncSep');
-            if (sync) sync.hidden = !hidden;
-            if (syncSep) syncSep.hidden = !hidden;
-            if (!hidden) this.markSyncEntry();
+            if (syncSep) syncSep.hidden = false;
+            this.markSyncEntry();
         }
 
         syncEditLayoutUI() {
@@ -473,7 +468,7 @@
             }
             this.editSession = null;
             this.exitEditLayout();
-            this.showToast('编辑已保存');
+            this.showToast('站点导航已保存并发布');
         }
 
         async cancelEditSession() {
@@ -555,7 +550,7 @@
         }
 
         saveLocalNavigation(config = this.config, undo = false) {
-            if (this.authenticated || this.personalNavigationLoaded || this.suspendedAdministrator) return Promise.resolve(false);
+            if (this.authenticated || this.siteNavigationLoaded || this.suspendedAdministrator) return Promise.resolve(false);
             const candidate = window.NavigationSchema.publicConfig(structuredClone(config));
             this.localPending++;
             this.setLocalStatus('正在保存到本机');
@@ -586,10 +581,10 @@
         }
 
         async refreshLocalNavigation(adopt = false) {
-            if (this.authenticated || this.personalNavigationLoaded || this.localPending) return;
+            if (this.authenticated || this.siteNavigationLoaded || this.localPending) return;
             try {
                 const record = await this.localStore.read();
-                if (this.authenticated || this.personalNavigationLoaded || this.localPending || !record || record.revision === this.localRevision) return;
+                if (this.authenticated || this.siteNavigationLoaded || this.localPending || !record || record.revision === this.localRevision) return;
                 if (!adopt && (this.editLayout || $('.ui-dialog-overlay') || this.localError)) {
                     this.setLocalStatus('其他标签页已修改导航，当前输入已保留。请先导出或采用其他标签页版本。', true);
                     $('#localAdoptBtn').hidden = false;
@@ -635,7 +630,7 @@
             try {
                 const config = await API.get('/api/config');
                 window.NavigationSchema.validate(config);
-                if (!await this.confirmAction('用当前已发布默认首页替换本机导航及未保存设置？可通过撤销恢复。', '重置导航')) return;
+                if (!await this.confirmAction('用当前站点导航替换本机导航及未保存设置？可通过撤销恢复。', '重置导航')) return;
                 if (this.authenticated || this.localRevision !== revision) throw new Error('导航状态已变化，请重新重置');
                 if (await this.saveLocalNavigation(config) && !this.authenticated) { this.config = structuredClone(config); this.applyTheme(); this.render(); if (this.editLayout) this.renderLocalSettings(); }
             } catch (error) { this.showToast('重置失败，原导航已保留：' + error.message, 'error'); }
@@ -1016,7 +1011,7 @@
             return `${(value / (1024 * 1024)).toFixed(2)} MiB`;
         }
 
-        /** 概览四块：空间总数 / 全实例有效配置字节 / 活跃设备数 / 同步服务状态。 */
+        /** 概览四块：用户数 / 全实例存储占用 / 活跃设备数 / 同步服务状态。 */
         paintSyncOverview() {
             const host = $('#syncOverview');
             if (!host) return;
@@ -1025,8 +1020,8 @@
             // 三种状态分开说：只暂停新建与总暂停看起来都是「没在新建」。
             const status = policy.syncPaused ? '已暂停' : policy.creatingPaused ? '暂停新建' : '正常';
             host.innerHTML = `
-                <div class="sync-stat"><b>${Number(usage.spaces) || 0}</b><span>空间总数（上限 1000）</span></div>
-                <div class="sync-stat"><b>${this.syncBytes(usage.bytes)}</b><span>全实例有效配置字节</span></div>
+                <div class="sync-stat"><b>${Number(usage.spaces) || 0}</b><span>用户数（上限 1000）</span></div>
+                <div class="sync-stat"><b>${this.syncBytes(usage.bytes)}</b><span>全实例存储占用</span></div>
                 <div class="sync-stat"><b>${Number(usage.devices) || 0}</b><span>活跃设备数</span></div>
                 <div class="sync-stat"><b>${this.esc(status)}</b><span>同步服务状态</span></div>`;
         }
@@ -1046,7 +1041,7 @@
                 // 空态分两种：搜出来是空的，与一个空间都还没有——后者要告诉用户下一步。
                 const empty = filter.q
                     ? `没有匹配「${this.esc(filter.q)}」的空间`
-                    : '还没有任何云端空间。管理员发放邀请码后，访客创建的空间会出现在这里。';
+                    : '还没有任何用户空间。管理员发放邀请码后，访客创建的空间会出现在这里。';
                 list.innerHTML = `<div class="sync-empty">${empty}</div>`;
             } else {
                 const label = space => String(space.id).slice(0, 8);
@@ -1063,7 +1058,9 @@
                         const mark = space.deleted ? 'is-gone' : space.disabled ? 'is-stale' : '';
                         // 已删除的墓碑只留作记录（还能看出它曾经存在），不再给操作按钮。
                         const actions = space.deleted ? ''
-                            : `<button type="button" class="btn btn-sm" data-action="toggle-space" data-id="${this.esc(id)}" data-disabled="${space.disabled ? '0' : '1'}">${space.disabled ? '重新启用' : '停用'}</button>
+                            : `<button type="button" class="btn btn-sm" data-action="edit-note" data-id="${this.esc(id)}">备注</button>
+                               <button type="button" class="btn btn-sm" data-action="toggle-space" data-id="${this.esc(id)}" data-disabled="${space.disabled ? '0' : '1'}">${space.disabled ? '重新启用' : '停用'}</button>
+                               <button type="button" class="btn btn-sm" data-action="reset-devices" data-id="${this.esc(id)}">重置设备</button>
                                <button type="button" class="btn btn-sm btn-danger" data-action="delete-space" data-id="${this.esc(id)}">删除</button>`;
                         return `<tr class="sync-space-row ${mark}">
                             <td><input type="checkbox" data-select-space="${this.esc(id)}" aria-label="选择空间 ${this.esc(label(space))}" ${space.deleted ? 'disabled' : ''} ${selected.has(id) ? 'checked' : ''}></td>
@@ -1227,6 +1224,34 @@
                 this.showToast('空间已删除');
             } catch (error) {
                 this.showToast('删除失败：' + error.message, 'error');
+            }
+        }
+
+        async editSyncSpaceNote(id) {
+            const space = (this.syncSpaces || []).find(item => String(item.id) === String(id));
+            const value = await this.promptValue('编辑用户备注', '备注', {
+                value: space?.note || '',
+                placeholder: '最多 100 个字符',
+                validate: values => values[0].trim().length > 100 ? '备注不能超过 100 个字符' : ''
+            });
+            if (value === null) return;
+            try {
+                await API.post(`/api/admin/sync-spaces/${encodeURIComponent(id)}/note`, { note: value.trim() });
+                await this.renderSyncSpaces();
+                this.showToast('备注已保存');
+            } catch (error) {
+                this.showToast('保存备注失败：' + error.message, 'error');
+            }
+        }
+
+        async resetSyncSpaceDevices(id) {
+            if (!await this.confirmAction('重置这个空间的所有设备？设备会立刻失效，用户需要重新输入口令连接。空间内容和版本不会改变。', '重置设备', true)) return;
+            try {
+                const result = await API.post(`/api/admin/sync-spaces/${encodeURIComponent(id)}/reset-devices`, {});
+                await this.renderSyncSpaces();
+                this.showToast(result.revoked ? `已撤销 ${result.revoked} 台设备` : '没有需要撤销的设备');
+            } catch (error) {
+                this.showToast('重置设备失败：' + error.message, 'error');
             }
         }
 
@@ -1412,7 +1437,16 @@
          * （`finishLocalDraft` 在里面死等一个不会到来的循环）。这正是
          * `showUiDialog` 自己也临建临删的原因。
          */
-        openSyncDialog() {
+        async openSyncDialog() {
+            if (this.authenticated) {
+                await this.showUiDialog({
+                    title: '同步',
+                    message: '当前查看的是站点导航，由管理员统一维护。口令同步用于访客本地导航；如需使用，请先退出管理员登录。',
+                    notice: true,
+                    confirmText: '知道了'
+                });
+                return;
+            }
             if (this.syncDialogEl) return;
             const overlay = html(`
                 <div class="ui-dialog-overlay" id="syncDialog" data-action="close">
@@ -2611,7 +2645,7 @@
         /** 采用云端内容：先留被替换的那一份，再覆盖本机。 */
         async applyCloudConfig(cloud) {
             // ⚠️ 这一层是**最后一道**：`recovery` 取的是 `this.config`，而管理员上下文下
-            // 那就是管理员个人导航。若不在这里拦，那份内容会被写进普通同步记录。
+            // 那就是站点导航。若不在这里拦，那份内容会被写进普通同步记录。
             if (!this.canRunOrdinarySync()) return;
             this.syncAdopting = true;
             try {
@@ -2655,7 +2689,7 @@
          * 管理员会话生效期间暂停普通同步调度（设计 §5：管理员上下文暂停普通同步）。
          * 只停调度——凭据、本地数据一个字都不动；配置隔离与身份切换归 #11。
          * 所有入口本身也都带 `this.authenticated` 判断，这一层是让定时器**停下来**，
-         * 否则管理员在编辑个人首页时，访客空间那边还在按 30 秒打接口。
+         * 否则管理员在编辑站点导航时，访客空间那边还在按 30 秒打接口。
          */
         pauseSyncForAdmin() { this.stopSyncTimers(); }
 
@@ -2663,8 +2697,8 @@
          * 普通同步能不能跑：不是管理员上下文、没有未决草稿、身份已确认。
          *
          * ⚠️ 这是**唯一**判据。只在入口判 `authenticated` 不够——本仓库踩过：
-         * 入口判了、**落盘点**没判，于是管理员个人导航会被写进普通同步记录的
-         * `recovery`（验收明令禁止的「管理员草稿落入普通存储」）。
+         * 入口判了、**落盘点**没判，于是站点导航会被写进普通同步记录的
+         * `recovery`（验收明令禁止的「站点导航落入普通存储」）。
          */
         canRunOrdinarySync() {
             return !this.authenticated && !this.suspendedAdministrator && !this.identityPending;
@@ -3086,9 +3120,17 @@
         }
 
         async finishLocalDraft() {
-            if (this.editLayout || $('.ui-dialog-overlay')) this.setLocalStatus('管理员会话已确认，请完成当前编辑后切换管理员首页');
+            if (this.editLayout || $('.ui-dialog-overlay')) this.setLocalStatus('站点导航会话已确认，请完成当前编辑后切换站点导航');
             while (this.editLayout || $('.ui-dialog-overlay')) await new Promise(resolve => setTimeout(resolve, 100));
             await this.localQueue;
+        }
+
+        /** 从后台跳到首页后自动进入编辑，只在管理员会话确认后生效。 */
+        maybeAutoEdit() {
+            const params = new URLSearchParams(location.search);
+            if (!params.has('edit')) return;
+            history.replaceState(null, '', location.pathname);
+            if (this.authenticated && !this.editLayout) this.toggleEditLayout();
         }
 
         async init() {
@@ -3108,7 +3150,7 @@
                 }
                 requestAnimationFrame(() => {
                     if (this.adminPage) this.openAdminPage();
-                    else this.restoreSession();
+                    else this.restoreSession().then(() => this.maybeAutoEdit());
                     this.loadSyncState();
                 });
                 const register = () => navigator.serviceWorker?.register('/sw.js').catch(error => console.warn('Service worker registration failed:', error));
@@ -3282,7 +3324,7 @@
                 return;
             }
 
-            // 登录态下这次调用会**整份**提交 config，等于替用户按下「保存编辑」：
+            // 登录态下这次调用会**整份**提交 config，等于替用户按下「保存并发布」：
             // 编辑中未保存的布局草稿会一起写进服务器，而按下的那个按钮只说
             // 「外观」。不可逆的动作不能藏在一个附带控件后面，所以先问一句。
             if (this.editLayout) {
@@ -3330,7 +3372,7 @@
         /**
          * 网格编辑表面：一份配置 + 一个宿主元素 + 一个可编辑判据 + 一个变更回调。
          *
-         * 首页与后台「站点默认首页」编辑器各用一份，渲染与交互只有下面这一套方法
+         * 首页编辑只使用这一套表面，渲染与交互只有下面这一套方法
          * （renderGrid / bindGridEdit / bindTouchGridDrag / move* 都接受 surface）。
          * 复制一份拖拽代码必然漂移，这个仓库已经付过同形重复的代价。
          *
@@ -4023,8 +4065,8 @@
             cat.bookmarks.push({ id: uid(), title: title.trim(), url: url.trim() });
             this.renderGrid(surface);
             surface.changed();
-            // 提示语要指向真正能提交这次改动的那颗按钮：模板表面提交的是草稿。
-            if (this.authenticated) this.showToast(surface === this.templateSurface ? '导航已添加，点「保存草稿」生效' : '导航已添加，点「保存编辑」生效');
+            // 提示语要指向真正能提交这次改动的那颗按钮。
+            if (this.authenticated) this.showToast('导航已添加，点「保存并发布」生效');
         }
 
         async editHomeBookmark(catIdx, bmIdx, surface = this.homeSurface) {
@@ -4131,7 +4173,7 @@
                 const navigation = await API.get('/api/admin/navigation');
                 if (!this.authenticated || epoch !== (this.privateEpoch || 0)) return;
                 if (this.hasAdministratorDraft() || !$('#modal').hidden) {
-                    if (navigation.revision !== this.navigationRevision) this.showToast('服务器导航已更新，当前草稿已保留；完成或取消编辑后协调版本', 'error', 8000);
+                    if (navigation.revision !== this.navigationRevision) this.showToast('站点导航已更新，当前草稿已保留；完成或取消编辑后协调版本', 'error', 8000);
                     return;
                 }
                 if (navigation.revision !== this.navigationRevision) {
@@ -4162,10 +4204,10 @@
             $('#layoutBtn').hidden = true;
             $('#localCancelBtn').hidden = true;
             $('#localDoneBtn').hidden = true;
-            const login = await this.showUiDialog({ title: '登录已失效', message: '私人内容已隐藏，未保存草稿仅保留在当前标签页。重新登录后恢复草稿，或放弃草稿恢复普通首页。', confirmText: '重新登录', cancelText: '放弃草稿' });
+            const login = await this.showUiDialog({ title: '登录已失效', message: '站点导航已隐藏，未保存草稿仅保留在当前标签页。重新登录后恢复草稿，或放弃草稿恢复本地导航。', confirmText: '重新登录', cancelText: '放弃草稿' });
             if (login) await this.openAdmin();
             if (!this.authenticated && this.suspendedAdministrator) {
-                const discard = await this.confirmAction('放弃管理员草稿并恢复普通首页？', '放弃草稿', true);
+                const discard = await this.confirmAction('放弃站点导航草稿并恢复本地导航？', '放弃草稿', true);
                 if (discard) this.suspendedAdministrator = null;
             }
             if (!this.suspendedAdministrator) {
@@ -4183,14 +4225,13 @@
             $('#localNavigationStatus').hidden = !this.localError;
             this.syncAppearanceEntry(true);
             this.localSettingsDraft = null;
-            if (this.publicNavigation) {
-                this.config = structuredClone(this.publicNavigation); this.publicNavigation = null;
+            if (this.localNavigationBeforeAdmin) {
+                this.config = structuredClone(this.localNavigationBeforeAdmin); this.localNavigationBeforeAdmin = null;
                 this.applyTheme(); this.render();
             }
             this.editSession = null; this.configDirty = false; this.configSnapshot = null;
-            this.template = null; this.templateSurface = null;
-            this.personalNavigationLoaded = false; this.navigationRevision = null; this.pendingNavigation = null;
-            if (!preservePending) { sessionStorage.removeItem('pabu-pending-navigation'); sessionStorage.removeItem('pabu-pending-default'); }
+            this.siteNavigationLoaded = false; this.navigationRevision = null; this.pendingNavigation = null;
+            if (!preservePending) sessionStorage.removeItem('pabu-pending-navigation');
             this.sessionTrusted = false; this.privateEpoch = (this.privateEpoch || 0) + 1;
             $('#modeBtn').hidden = true; $('#modal').hidden = true;
             $('.admin-panels')?.replaceChildren(); $$('.ui-dialog-overlay').forEach(el => el.remove());
@@ -4213,14 +4254,14 @@
                     this.privateEpoch = (this.privateEpoch || 0) + 1;
                     this.authenticated = true;
                     this.pauseSyncForAdmin();
-                    await this.loadPersonalNavigation();
+                    await this.loadSiteNavigation();
                     this.adoptServerTheme();
                     this.sessionTrusted = !!session.trusted;
                 } else if (!session.authenticated && this.authenticated) this.clearPrivateState();
                 return !!session.authenticated;
             } catch (e) {
                 console.error('Restore session failed:', e);
-                if (this.authenticated && !this.personalNavigationLoaded) this.clearPrivateState({ preservePending: true });
+                if (this.authenticated && !this.siteNavigationLoaded) this.clearPrivateState({ preservePending: true });
                 this.setLocalStatus('无法确认管理员登录，可继续使用本地导航，网络恢复后重新确认', true);
                 return false;
             } finally {
@@ -4271,9 +4312,8 @@
                 : '当前设备未被信任，24 小时后需重新登录。';
         }
 
-        // privacyMode 属于管理端设置，不在公开配置视图里。
-        // 带会话取回；失败时保持现状。
-        async loadPersonalNavigation() {
+        // 站点导航由管理员统一维护。读取时带上 revision，保存即发布。
+        async loadSiteNavigation() {
             const epoch = this.privateEpoch || 0;
             const pending = sessionStorage.getItem('pabu-pending-navigation');
             if (pending) {
@@ -4288,7 +4328,7 @@
             }
             const data = await API.get('/api/admin/navigation');
             if (!this.authenticated || epoch !== (this.privateEpoch || 0)) throw new Error('登录状态已变化');
-            if (!this.personalNavigationLoaded) this.publicNavigation = structuredClone(this.config);
+            if (!this.siteNavigationLoaded) this.localNavigationBeforeAdmin = structuredClone(this.config);
             this.config = this.recoveredNavigationDraft || data.config;
             this.recoveredNavigationDraft = null;
             this.navigationRevision = data.revision;
@@ -4300,9 +4340,9 @@
                 this.editLayout = true;
                 this.pendingNavigation = draft.pendingNavigation;
                 this.suspendedAdministrator = null;
-                this.showToast('管理员草稿已恢复，保存时将校验原始版本');
+                this.showToast('站点导航草稿已恢复，保存时将校验原始版本');
             }
-            this.personalNavigationLoaded = true;
+            this.siteNavigationLoaded = true;
             $('#appearanceBtn').disabled = false;
             $('#engineBtn').disabled = false;
             $('#localNavigationTools').hidden = true;
@@ -4314,7 +4354,7 @@
         }
 
         async saveNavigation(options = {}) {
-            if (!this.personalNavigationLoaded) throw new Error('个人导航未加载，请刷新后重试');
+            if (!this.siteNavigationLoaded) throw new Error('站点导航未加载，请刷新后重试');
             const content = JSON.stringify(this.config);
             if (this.navigationSaving) throw new Error('正在保存，请稍后重试');
             // 响应丢失时复用操作标识，避免把已提交结果误报为版本冲突。
@@ -4331,213 +4371,6 @@
                 this.pendingNavigation = null;
                 return res;
             } finally { this.navigationSaving = false; }
-        }
-
-        // ========== 站点默认首页：面板内可视化编辑 ==========
-        //
-        // 编辑的是「模板草稿」，与管理员个人导航是两份独立存储：
-        //   面板右上角 保存 / 取消 → config.json 与管理员个人导航
-        //   编辑器底栏 取消 / 保存草稿 / 发布 → /api/admin/default-homepage
-        // 两套提交模型同屏，靠位置与文案分开，谁也不替谁提交。
-        //
-        // 只读态就是预览：画布始终渲染草稿的真实结果，所以没有单独的「预览」按钮。
-
-        /** 读取草稿（含上次未确认的发布重放），成功后挂到当前面板 DOM 上。 */
-        async loadTemplateEditor() {
-            const note = $('#templateNote');
-            if (note) note.textContent = '正在读取默认首页草稿…';
-            try {
-                const retry = sessionStorage.getItem('pabu-pending-default');
-                if (retry) {
-                    const request = JSON.parse(retry);
-                    const result = await API.post('/api/admin/default-homepage/' + request.domain, request.body);
-                    if (!result.success) {
-                        if (result.error) sessionStorage.removeItem('pabu-pending-default');
-                        throw new Error(result.error || '上次发布结果尚未确认，请刷新后重试');
-                    }
-                    sessionStorage.removeItem('pabu-pending-default');
-                }
-                const data = await API.get('/api/admin/default-homepage');
-                if (!this.authenticated) return;
-                this.template = {
-                    draft: structuredClone(data.config),
-                    base: structuredClone(data.config),
-                    revision: data.revision,
-                    publishedRevision: data.publishedRevision,
-                    mode: 'readonly',
-                    busy: false,
-                    pending: null
-                };
-                this.mountTemplateEditor();
-            } catch (e) {
-                if (note) note.textContent = e.message;
-            }
-        }
-
-        /** 把草稿挂到当前面板 DOM 上。面板每次重渲染都会换一批节点，所以每次都要重绑。
-         *  ⚠️ 已知项：bindBookmarkPress / bindTouchGridDrag 在 window 上挂的 5 条监听
-         *  没有随旧节点回收，每开一次面板会多 5 条（闭包留住旧宿主与旧 surface）。
-         *  面板每次重渲染都会重挂，所以历史上限就是「本次会话开过几次面板」。 */
-        mountTemplateEditor() {
-            const grid = $('#templateGrid');
-            if (!grid || !this.template) return;
-            // 面板每次重渲染都换一批节点。网格上的监听随旧节点一起消失，
-            // 但 bindBookmarkPress / bindTouchGridDrag 还在 window 上挂了 5 条——
-            // 不摘掉就会每开一次面板永久多 5 条，并把旧宿主与旧 surface 留在闭包里。
-            // 第二份网格表面：配置取草稿，宿主是面板里的画布。
-            // 与首页共用同一套 renderGrid / bindGridEdit，不复制拖拽代码。
-            this.templateSurface = this.gridSurface({
-                getConfig: () => this.template.draft,
-                isEditing: () => this.template.mode === 'edit',
-                host: grid,
-                changed: () => this.renderTemplateEditor()
-            });
-            this.bindGridEdit(this.templateSurface);
-            this.bindBookmarkPress(grid);
-            this.renderTemplateEditor();
-        }
-
-        /** 画布头部只是草稿的静态外观，不参与交互：不带 id，避免与首页的搜索框撞。 */
-        renderTemplateCanvas() {
-            const header = $('#templateHeader');
-            if (!header || !this.template) return;
-            const config = this.template.draft;
-            const engine = config.searchEngines.find(e => e.id === config.searchEngine) || config.searchEngines[0];
-            header.innerHTML = `<div class="search-wrapper"><div class="search" role="presentation">
-                <span class="search-engine" aria-hidden="true"><span class="engine-name">${this.esc(engine ? engine.name : '')}</span><svg class="engine-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
-                <textarea class="search-input" rows="1" readonly tabindex="-1" aria-hidden="true" placeholder="搜索网页"></textarea>
-                <span class="search-btn" aria-hidden="true">搜索</span>
-            </div></div>`;
-        }
-
-        /** 刷新模式、dirty 与操作栏，然后按草稿重绘画布。结构变更也走这里。 */
-        renderTemplateEditor() {
-            const t = this.template;
-            if (!t) return;
-            const editing = t.mode === 'edit';
-            const dirty = JSON.stringify(t.draft) !== JSON.stringify(t.base);
-            const badge = $('#templateBadge');
-            if (badge) badge.textContent = dirty
-                ? `发布版 v${t.publishedRevision} · 有未保存改动`
-                : `发布版 v${t.publishedRevision}`;
-            const note = $('#templateNote');
-            if (note) note.textContent = editing
-                ? (dirty ? '编辑中 · 有未保存改动' : '编辑中 · 拖拽分类与链接，点 ＋ 增删')
-                : '只读预览 · 与真实首页同一套 DOM 与样式';
-            const canvas = $('#templateCanvas');
-            if (canvas) canvas.hidden = false;
-            const editBtn = $('#templateEditBtn');
-            if (editBtn) editBtn.hidden = editing;
-            // 操作栏常显：「发布」是终态动作，不该要求先回到编辑态才能点。
-            // 编辑态才多出「取消 / 保存草稿」两条。
-            const state = $('#templateState');
-            if (state) {
-                state.textContent = dirty
-                    ? '有未保存改动'
-                    : `草稿版本 ${t.revision} · 发布版本 ${t.publishedRevision}`;
-                state.dataset.dirty = String(dirty);
-            }
-            const publish = $('#templatePublishBtn');
-            if (publish) {
-                const published = t.revision === t.publishedRevision;
-                publish.disabled = dirty || published || t.busy;
-                publish.title = dirty ? '请先保存草稿，再发布'
-                    : published ? '当前草稿已是发布版本'
-                        : '发布后供首次访问和主动重置使用';
-            }
-            const save = $('#templateSaveBtn');
-            if (save) {
-                save.hidden = !editing;
-                save.disabled = !dirty || t.busy;
-            }
-            const cancel = $('#templateCancelBtn');
-            if (cancel) {
-                cancel.hidden = !editing;
-                cancel.disabled = t.busy;
-            }
-            const editor = $('#templateEditor');
-            if (editor) editor.dataset.mode = editing ? 'edit' : 'readonly';
-            // 增删控件的显隐由 `.grid.is-editing` 决定（既定纪律：JS 不写 hidden）。
-            // 首页那份由 syncEditLayoutUI 加，画布这份必须自己加，否则编辑态下
-            // 按钮渲染了却仍是 display:none——「点了编辑什么都没出现」。
-            const grid = $('#templateGrid');
-            if (grid) grid.classList.toggle('is-editing', editing);
-            this.renderTemplateCanvas();
-            this.renderGrid(this.templateSurface);
-        }
-
-        templateSetMode(mode) {
-            if (!this.template || this.template.busy) return;
-            this.template.mode = mode;
-            this.renderTemplateEditor();
-        }
-
-        /** 取消只回退编辑器里的草稿改动，不动面板里已填的个人设置。 */
-        templateCancel() {
-            const t = this.template;
-            if (!t || t.busy) return;
-            t.draft = structuredClone(t.base);
-            t.mode = 'readonly';
-            this.renderTemplateEditor();
-        }
-
-        /** 模板草稿是否有未保存改动。面板还没打开过（没有草稿）也算没有。 */
-        templateDirty() {
-            const t = this.template;
-            return !!t && JSON.stringify(t.draft) !== JSON.stringify(t.base);
-        }
-
-        /** 保存草稿或发布。发布前必须没有未保存改动（沿用原有规则）。 */
-        async templateSubmit(publish) {
-            const t = this.template;
-            if (!t || t.busy) return;
-            const content = JSON.stringify(t.draft);
-            if (publish && content !== JSON.stringify(t.base)) {
-                this.showToast('请先保存草稿，再发布', 'error');
-                return;
-            }
-            const domain = publish ? 'publish' : 'draft';
-            // 响应丢失时重放同一个操作标识，沿用既有的幂等形状。
-            if (!t.pending || t.pending.domain !== domain || t.pending.content !== content) {
-                t.pending = {
-                    domain,
-                    content,
-                    body: publish
-                        ? { publishedRevision: t.publishedRevision, revision: t.revision, operationId: crypto.randomUUID() }
-                        : { config: structuredClone(t.draft), revision: t.revision, operationId: crypto.randomUUID() }
-                };
-            }
-            t.busy = true;
-            this.renderTemplateEditor();
-            try {
-                sessionStorage.setItem('pabu-pending-default', JSON.stringify(t.pending));
-                const result = await API.post('/api/admin/default-homepage/' + domain, t.pending.body);
-                if (!result.success) {
-                    if (result.error) {
-                        sessionStorage.removeItem('pabu-pending-default');
-                        t.pending = null;
-                    }
-                    throw new Error(result.error || '保存结果尚未确认，请刷新后重试');
-                }
-                sessionStorage.removeItem('pabu-pending-default');
-                t.pending = null;
-                if (publish) {
-                    t.publishedRevision = result.revision;
-                    this.showToast('默认首页已发布，个人导航保持原样');
-                } else {
-                    t.revision = result.revision;
-                    t.base = structuredClone(t.draft);
-                    t.mode = 'readonly';
-                    this.showToast('草稿已保存，公开首页保持原样');
-                }
-            } catch (e) {
-                if (this.template) this.showToast(e.message, 'error');
-            } finally {
-                if (this.template) {
-                    this.template.busy = false;
-                    this.renderTemplateEditor();
-                }
-            }
         }
 
         isPasteTrigger(char) {
@@ -4815,12 +4648,17 @@
 
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和外观。访客配置保存在本机，管理员可发布站点默认首页。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和外观。访客配置保存在本机，管理员在首页直接编辑站点导航。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };
             document.body.append(overlay);
             overlay.querySelector('.help-close').focus();
+        }
+
+        openHomepageEditor() {
+            if (this.adminPage) { location.href = '/?edit=1'; return; }
+            this.closeAdmin().then(closed => { if (closed && !this.editLayout) this.toggleEditLayout(); });
         }
 
         async openAdminPage() {
@@ -4857,9 +4695,9 @@
                 await this.finishLocalDraft(); this.privateEpoch = (this.privateEpoch || 0) + 1; this.authenticated = true; this.pauseSyncForAdmin(); this.notifyIdentityChanged();
                 API.envChangeNotified = false; this.sessionTrusted = false;
                 if (values.choices.trustDevice) this.sessionTrusted = await this.trustDevice();
-                await this.loadPersonalNavigation(); this.adoptServerTheme();
+                await this.loadSiteNavigation(); this.adoptServerTheme();
             }
-            if (!this.personalNavigationLoaded) await this.loadPersonalNavigation();
+            if (!this.siteNavigationLoaded) await this.loadSiteNavigation();
             if (!this.editLayout) this.beginConfigEdit();
             this.renderAdminPanel();
             if (this.adminPage) {
@@ -5032,18 +4870,8 @@
             // `configDirty` 在保存期间仍为 true，走进去就会把内存里的 `config` 回滚成
             // 提交前的快照，保存成功后页面反而显示旧配置，直到刷新才恢复。
             const saving = this.configSaving;
-            // 模板草稿是另一套存储，不能跟着 config.json 的「放弃修改」一起静默丢弃。
-            // 它只在内存里，关掉面板就没了，所以单独问一句。
-            if (!force && this.templateDirty()) {
-                if (!await this.confirmAction('站点默认首页有未保存的草稿改动，关闭面板会丢失。确定关闭吗？', '关闭面板')) return false;
-                this.template.draft = structuredClone(this.template.base);
-                this.template.mode = 'readonly';
-                // 已丢弃就要立刻重画：下面那条「放弃修改」若被取消，面板还开着，
-                // 而画布与状态行仍显示着刚被丢掉的草稿——状态与 DOM 分叉。
-                this.renderTemplateEditor();
-            }
             if (!saving && this.configDirty) {
-                if (!force && !await this.confirmAction('有未保存的修改，确定放弃吗？', '放弃修改')) return false;
+                if (!force && !await this.confirmAction('站点导航有未保存的修改，确定放弃吗？', '放弃修改')) return false;
                 this.config = JSON.parse(this.configSnapshot);
                 this.applyTheme();
                 this.render();
@@ -5098,26 +4926,23 @@
 
         renderAdminPanel() {
             $('#modalBody').innerHTML = `<div class="admin-tabs" role="tablist" aria-label="管理分区">
-                <button type="button" class="admin-tab" role="tab" id="adminTabSite" aria-controls="adminPanelSite" data-panel="site">首页导航</button>
-                <button type="button" class="admin-tab" role="tab" id="adminTabSync" aria-controls="adminPanelSync" data-panel="sync">同步管理</button>
+                <button type="button" class="admin-tab" role="tab" id="adminTabSite" aria-controls="adminPanelSite" data-panel="site">站点导航</button>
+                <button type="button" class="admin-tab" role="tab" id="adminTabSync" aria-controls="adminPanelSync" data-panel="sync">用户与数据</button>
                 <button type="button" class="admin-tab" role="tab" id="adminTabAccount" aria-controls="adminPanelAccount" data-panel="account">账户</button></div><div class="admin-panels">
                 <section class="admin-panel" role="tabpanel" id="adminPanelSite" aria-labelledby="adminTabSite">
-                    <div class="section"><div class="section-title">个人首页设置</div><p class="fav-hint">保存仅更新管理员个人导航。</p>
+                    <div class="section"><div class="section-title">站点导航</div><p class="fav-hint">导航内容在首页直接编辑，保存后所有未自定义的访客会看到同一份内容。</p><button type="button" class="btn btn-sm" id="editHomepageBtn">去首页编辑导航</button></div>
+                    <div class="section"><div class="section-title">站点外观与搜索</div><p class="fav-hint">保存的是所有访客默认看到的外观和搜索引擎。</p>
                         <div class="setting-row"><label><span>视觉主题</span><select id="themeStyleSelect"></select></label></div>
                         <div class="setting-row"><label><span>明暗模式</span><select id="themeModeSelect"><option value="auto">跟随系统</option><option value="light">浅色模式</option><option value="dark">深色模式</option></select></label></div>
                         <div class="setting-row"><label><span>默认搜索引擎</span><select id="defaultEngineSelect">${this.config.searchEngines.map(e => `<option value="${this.esc(e.id)}" ${e.id === this.config.searchEngine ? 'selected' : ''}>${this.esc(e.name)}</option>`).join('')}</select></label></div>
                     </div>
-                    <div class="section template-section"><div class="section-title">站点默认首页<span class="template-badge" id="templateBadge"></span></div><p class="fav-hint">草稿与个人导航独立保存。发布后供首次访问和主动重置使用。</p>
-                        <div class="template-editor" id="templateEditor" data-mode="readonly"><div class="template-editor-bar"><span class="template-editor-note" id="templateNote">正在读取默认首页草稿…</span><button type="button" class="btn btn-sm" id="templateEditBtn" hidden>编辑</button></div>
-                        <div class="template-canvas" id="templateCanvas" hidden><div class="backboard"><header class="header" id="templateHeader"></header><main class="grid" id="templateGrid"></main></div></div>
-                        <div class="template-editor-actions" id="templateActions"><span class="template-state" id="templateState"></span><div><button type="button" class="btn btn-sm" id="templateCancelBtn" hidden>取消</button><button type="button" class="btn btn-sm" id="templateSaveBtn" hidden>保存草稿</button><button type="button" class="btn btn-sm btn-primary" id="templatePublishBtn" disabled>发布默认首页</button></div></div></div></div>
                     <div class="section section-collapsible"><button type="button" class="section-header" aria-expanded="false" aria-controls="enginesSection" onclick="app.toggleSection('engines')"><span class="section-title">搜索引擎</span><span class="section-toggle-label">展开</span></button><div class="section-body collapsed" id="enginesSection"><div id="enginesEditor"></div><button class="add-btn" id="addEngine">添加搜索引擎</button></div></div>
                 </section>
                 <section class="admin-panel" role="tabpanel" id="adminPanelSync" aria-labelledby="adminTabSync" hidden>
-                    <div class="section"><div class="section-title">同步概览</div><div class="sync-overview" id="syncOverview"><div class="sync-stat"><b>—</b><span>空间总数</span></div><div class="sync-stat"><b>—</b><span>配置字节</span></div><div class="sync-stat"><b>—</b><span>活跃设备</span></div><div class="sync-stat"><b>—</b><span>服务状态</span></div></div>
+                    <div class="section"><div class="section-title">用户与数据概览</div><div class="sync-overview" id="syncOverview"><div class="sync-stat"><b>—</b><span>用户数</span></div><div class="sync-stat"><b>—</b><span>存储占用</span></div><div class="sync-stat"><b>—</b><span>活跃设备</span></div><div class="sync-stat"><b>—</b><span>服务状态</span></div></div>
                     <div class="sync-policy-row"><label class="sync-policy-item"><span>暂停新建</span><div class="toggle-switch"><input type="checkbox" id="syncCreatingPaused"><span class="toggle-slider"></span></div></label><label class="sync-policy-item"><span>总暂停</span><div class="toggle-switch"><input type="checkbox" id="syncTotalPaused"><span class="toggle-slider"></span></div></label></div><p id="syncPolicyHint" class="fav-hint"></p></div>
                     <div class="section" id="syncInvitesSection"><div class="section-title">邀请码</div><p class="fav-hint">邀请码一次性使用，有效期 48 小时。</p><div class="sync-toolbar"><input id="syncInviteNote" maxlength="100" placeholder="备注" aria-label="邀请码备注"><button type="button" class="btn btn-sm" id="createSingleInviteBtn">单个生成</button><select id="syncInviteCount" aria-label="生成数量"><option value="1">1 张</option><option value="5">5 张</option><option value="10" selected>10 张</option><option value="custom">自定义</option></select><input type="number" id="syncInviteCustomCount" min="1" max="20" step="1" value="20" hidden aria-label="自定义张数"><button type="button" class="btn btn-sm btn-primary" id="createInviteBtn">批量生成</button></div><p class="sync-error" id="syncInviteError" hidden></p><div id="syncInviteBatch" hidden></div><div class="sync-toolbar"><select id="syncInviteState" aria-label="邀请码状态"><option value="all">全部</option><option value="unused">未使用</option><option value="used">已使用</option><option value="expired">已过期</option><option value="revoked">已撤销</option></select><button type="button" class="btn btn-sm" id="revokeSelectedInvites" disabled>撤销选中</button><span id="syncInviteCounts" class="sync-toolbar-note"></span></div><div class="sync-invite-list" id="syncInviteList"></div><div class="sync-pager" id="syncInvitePager" hidden></div></div>
-                    <div class="section" id="syncSpacesSection"><div class="section-title">同步空间治理</div><p class="fav-hint">可管理备注、状态和设备数量，不读取空间正文或设备凭据。</p><div class="sync-toolbar"><input type="search" id="syncSpaceSearch" placeholder="搜索备注" aria-label="搜索备注"><select id="syncSpaceState"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已停用</option><option value="deleted">已删除</option></select><select id="syncSpaceSort"><option value="updated">最近更新</option><option value="bytes">体积</option><option value="devices">设备数</option></select></div><div class="sync-toolbar"><button type="button" class="btn btn-sm" id="disableSelectedSpaces" disabled>批量停用</button><span id="syncSpacesSelection" class="sync-toolbar-note"></span><span id="syncSpacesSummary" class="sync-toolbar-note"></span></div><div class="sync-space-host" id="syncSpacesList"></div><div class="sync-pager" id="syncSpacesPager" hidden></div></div>
+                    <div class="section" id="syncSpacesSection"><div class="section-title">同步空间（用户）</div><p class="fav-hint">用户以同步空间表示。管理端只展示元数据，可以编辑备注、停用、删除和重置设备，不读取空间正文或设备凭据。</p><div class="sync-toolbar"><input type="search" id="syncSpaceSearch" placeholder="搜索备注" aria-label="搜索备注"><select id="syncSpaceState"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已停用</option><option value="deleted">已删除</option></select><select id="syncSpaceSort"><option value="updated">最近更新</option><option value="bytes">体积</option><option value="devices">设备数</option></select></div><div class="sync-toolbar"><button type="button" class="btn btn-sm" id="disableSelectedSpaces" disabled>批量停用</button><span id="syncSpacesSelection" class="sync-toolbar-note"></span><span id="syncSpacesSummary" class="sync-toolbar-note"></span></div><div class="sync-space-host" id="syncSpacesList"></div><div class="sync-pager" id="syncSpacesPager" hidden></div></div>
                 </section>
                 <section class="admin-panel" role="tabpanel" id="adminPanelAccount" aria-labelledby="adminTabAccount" hidden><div class="section"><div class="section-title">登录安全</div><div class="setting-row"><label><span>信任此设备</span><div class="toggle-switch"><input type="checkbox" id="trustDeviceToggle"><span class="toggle-slider"></span></div></label></div><p class="fav-hint" id="trustDeviceHint"></p></div><div class="section"><button class="btn btn-danger" id="logoutBtn" style="width:100%">退出登录</button></div></section></div>`;
             this.bindAdminTabs();
@@ -5126,11 +4951,7 @@
             this.syncSpacesRendered = false;
             this.syncInviteBatch = null;
             this.selectAdminTab(this.adminTab || 'site');
-            if (!this.template) this.loadTemplateEditor(); else this.mountTemplateEditor();
-            $('#templateEditBtn').onclick = () => this.templateSetMode('edit');
-            $('#templateCancelBtn').onclick = () => this.templateCancel();
-            $('#templateSaveBtn').onclick = () => this.templateSubmit(false);
-            $('#templatePublishBtn').onclick = () => this.templateSubmit(true);
+            $('#editHomepageBtn').onclick = () => this.openHomepageEditor();
             $('#createSingleInviteBtn').onclick = () => this.createSyncInvites(true);
             $('#createInviteBtn').onclick = () => this.createSyncInvites();
             $('#syncInviteList').addEventListener('click', event => { if (event.target.dataset.action === 'revoke-invite') this.revokeSyncInvite(event.target.dataset.id); if (event.target.dataset.action === 'retry-invites') { this.syncInvites = null; this.syncInvitesRendered = false; this.renderSyncInvites(); } });
@@ -5140,7 +4961,14 @@
             $('#syncInviteCount').onchange = event => { $('#syncInviteCustomCount').hidden = event.target.value !== 'custom'; this.showSyncInviteError(''); };
             $('#syncInviteState').onchange = event => { this.syncInvitesFilter.state = event.target.value; this.syncInvitesFilter.offset = 0; this.syncInviteSelected.clear(); this.renderSyncInvites(); };
             $('#revokeSelectedInvites').onclick = () => this.revokeSelectedInvites();
-            $('#syncSpacesList').addEventListener('click', event => { const action = event.target.dataset.action; if (action === 'toggle-space') this.toggleSyncSpace(event.target.dataset.id, event.target.dataset.disabled === '1'); if (action === 'delete-space') this.deleteSyncSpace(event.target.dataset.id); if (action === 'retry-spaces') { this.syncSpacesRendered = false; this.renderSyncSpaces(); } });
+            $('#syncSpacesList').addEventListener('click', event => {
+                const action = event.target.dataset.action;
+                if (action === 'toggle-space') this.toggleSyncSpace(event.target.dataset.id, event.target.dataset.disabled === '1');
+                if (action === 'delete-space') this.deleteSyncSpace(event.target.dataset.id);
+                if (action === 'edit-note') this.editSyncSpaceNote(event.target.dataset.id);
+                if (action === 'reset-devices') this.resetSyncSpaceDevices(event.target.dataset.id);
+                if (action === 'retry-spaces') { this.syncSpacesRendered = false; this.renderSyncSpaces(); }
+            });
             $('#syncCreatingPaused').onchange = $('#syncTotalPaused').onchange = () => this.saveSyncPolicy();
             $('#syncSpacesList').addEventListener('change', event => { if (event.target.id === 'syncSpacesSelectAll') this.toggleAllSyncSpaces(event.target.checked); else if (event.target.dataset.selectSpace) this.toggleSyncSpaceSelection(event.target.dataset.selectSpace, event.target.checked); });
             $('#syncSpacesPager').addEventListener('click', event => { const step = this.syncSpacesFilter.limit || SYNC_PAGE_SIZE; if (event.target.dataset.action === 'spaces-prev') { this.syncSpacesFilter.offset = Math.max(0, this.syncSpacesFilter.offset - step); this.renderSyncSpaces(); } if (event.target.dataset.action === 'spaces-next') { this.syncSpacesFilter.offset += step; this.renderSyncSpaces(); } });
@@ -5163,7 +4991,7 @@
             $('#logoutBtn').onclick = async () => {
                 if (this.navigationSaving || this.configSaving) { this.showToast('正在保存，请等待结果后退出', 'error'); return; }
                 if (this.pendingNavigation) { this.showToast('上次保存结果尚未确认，请重试保存后再退出', 'error', 8000); return; }
-                if (this.editLayout) { if (!await this.showUiDialog({ title: '退出登录', message: '先保存管理员首页草稿？', confirmText: '保存草稿', cancelText: '取消退出' })) return; await this.saveEditSession(); if (this.editLayout) return; }
+                if (this.editLayout) { if (!await this.showUiDialog({ title: '退出登录', message: '先保存站点导航草稿？', confirmText: '保存并退出', cancelText: '取消退出' })) return; await this.saveEditSession(); if (this.editLayout) return; }
                 if (!await this.closeAdmin()) return;
                 try { const result = await API.post('/api/logout', {}); if (!result.success) throw new Error(); } catch { this.showToast('退出请求失败，请检查网络后重试', 'error'); return; }
                 this.clearPrivateState(); this.notifyIdentityChanged(); await this.refreshLocalNavigation();
@@ -5251,7 +5079,7 @@
                     } else {
                         await this.closeAdmin(true);
                     }
-                    this.showToast('设置已保存到服务器');
+                    this.showToast('站点导航设置已保存');
                 } else {
                     reportFailure(res.error || '保存失败，请重试');
                 }

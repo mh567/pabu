@@ -459,13 +459,15 @@ test('落盘一律带期望代次；只有推进代次的那条路不带（它�
 
 // ==================== #10：设备回收与空间资源治理的接线 ====================
 
-test('#10 的管理员治理路由：四条（含 GET/POST 成对）都走 rateLimit + requireAdmin，且不读设备令牌', () => {
+test('#10 的管理员治理路由：七条（含 GET/POST 成对）都走 rateLimit + requireAdmin，且不读设备令牌', () => {
     const code = stripComments(serverSource);
     // 逐条点名而不是「统计到 5 条」：漏掉 requireAdmin 的那一条必须自己站起来报名字。
     const routes = [
         ["/api/admin/sync-spaces", 'get'],
         ["/api/admin/sync-spaces/:id/disable", 'post'],
         ["/api/admin/sync-spaces/:id/delete", 'post'],
+        ["/api/admin/sync-spaces/:id/note", 'post'],
+        ["/api/admin/sync-spaces/:id/reset-devices", 'post'],
         ["/api/admin/sync-settings", 'get'],
         ["/api/admin/sync-settings", 'post']
     ];

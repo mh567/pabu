@@ -112,7 +112,7 @@ test('themes: fixed dark style preserves the saved classic mode', () => {
     assert.deepEqual(schema.appearance({ ...config, themeStyle: 'classic', theme: 'light' }), { style: 'classic', mode: 'light' });
 });
 
-test('themes: personal and published styles persist through real HTTP writes and restart', async t => {
+test('themes: site styles persist through real HTTP writes and restart', async t => {
     const fs = require('node:fs');
     const path = require('node:path');
     const bcrypt = require('bcrypt');
@@ -122,13 +122,11 @@ test('themes: personal and published styles persist through real HTTP writes and
     await app.start();
     const login = await app.request('/api/verify-password', { password: 'StrongPass123!', body: {} });
     const cookie = login.headers.get('set-cookie').split(';')[0];
-    const personal = await (await app.request('/api/admin/navigation', { cookie })).json();
-    const prism = { ...personal.config, themeStyle: 'prism', theme: 'light' };
-    assert.equal((await app.request('/api/admin/navigation', { cookie, body: { config: prism, revision: personal.revision, operationId: 'theme-personal' } })).status, 200);
+    const site = await (await app.request('/api/admin/navigation', { cookie })).json();
+    const prism = { ...site.config, themeStyle: 'prism', theme: 'light' };
+    assert.equal((await app.request('/api/admin/navigation', { cookie, body: { config: prism, revision: site.revision, operationId: 'theme-site' } })).status, 200);
     assert.equal((await (await app.request('/api/config')).json()).themeStyle, 'prism');
-    const draft = await (await app.request('/api/admin/default-homepage', { cookie })).json();
-    const saved = await (await app.request('/api/admin/default-homepage/draft', { cookie, body: { config: { ...draft.config, themeStyle: 'prism' }, revision: draft.revision, operationId: 'theme-draft' } })).json();
-    assert.equal((await app.request('/api/admin/default-homepage/publish', { cookie, body: { revision: saved.revision, publishedRevision: draft.publishedRevision, operationId: 'theme-publish' } })).status, 200);
+    assert.equal((await (await app.request('/api/config')).json()).theme, 'light');
     await app.stop();
     await app.start();
     assert.equal((await (await app.request('/api/config')).json()).themeStyle, 'prism');

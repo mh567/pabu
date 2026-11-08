@@ -308,7 +308,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.use(
-    ['/api/admin/navigation', '/api/admin/default-homepage', '/api/sync/space/create', '/api/sync/config'],
+    ['/api/admin/navigation', '/api/sync/space/create', '/api/sync/config'],
     express.json({ limit: '1100kb' })
 );
 app.use(express.json());
@@ -656,35 +656,27 @@ async function init() {
 
 app.get('/api/config', publicReadLimit, (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
-    res.json(navigation.read('published').config);
+    res.json(navigation.read('site').config);
 });
 
 app.post('/api/config', rateLimit, requireAdmin, (req, res) => {
-    res.status(409).json({ error: '页面版本不兼容，请刷新后使用个人导航保存入口' });
+    res.status(409).json({ error: '站点导航请在首页编辑并保存' });
 });
 
 app.get('/api/admin/navigation', rateLimit, requireAdmin, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json(navigation.read('admin'));
+    res.json(navigation.read('site'));
 });
-app.get('/api/admin/default-homepage', rateLimit, requireAdmin, (req, res) => {
+
+app.post('/api/admin/navigation', rateLimit, requireAdmin, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ...navigation.read('draft'), publishedRevision: navigation.read('published').revision });
+    try {
+        res.json(navigation.write('site', req.body));
+    }
+    catch (err) {
+        res.status(err.status || 500).json({ error: err.status ? err.message : '保存失败，请稍后重试' });
+    }
 });
-for (const [route, domain] of [
-    ['/api/admin/navigation', 'admin'],
-    ['/api/admin/default-homepage/draft', 'draft'],
-    ['/api/admin/default-homepage/publish', 'published']
-]) {
-    app.post(route, rateLimit, requireAdmin, (req, res) => {
-        res.setHeader('Cache-Control', 'no-store');
-        try {
-            const result = navigation.write(domain, req.body);
-            res.json(result);
-        }
-        catch (err) { res.status(err.status || 500).json({ error: err.status ? err.message : '保存失败，请稍后重试' }); }
-    });
-}
 
 // ========== 普通访问者的口令云端空间 ==========
 //
@@ -939,6 +931,18 @@ app.post('/api/admin/sync-spaces/:id/disable', rateLimit, requireAdmin, (req, re
 app.post('/api/admin/sync-spaces/:id/delete', rateLimit, requireAdmin, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { res.json(syncStore.deleteSpaceAsAdmin(req.params.id)); }
+    catch (error) { syncFailure(res, error); }
+});
+
+app.post('/api/admin/sync-spaces/:id/note', rateLimit, requireAdmin, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try { res.json(syncStore.setSpaceNote(req.params.id, (req.body || {}).note)); }
+    catch (error) { syncFailure(res, error); }
+});
+
+app.post('/api/admin/sync-spaces/:id/reset-devices', rateLimit, requireAdmin, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try { res.json(syncStore.resetSpaceDevicesAsAdmin(req.params.id)); }
     catch (error) { syncFailure(res, error); }
 });
 
@@ -1254,7 +1258,7 @@ app.get('/p/:code', (req, res) => {
     const paste = pasteStorage.get(code);
     const exists = paste && Date.now() <= paste.expiresAt;
     const requirePin = exists && paste.pin;
-    const appearance = require('./public/navigation-schema').appearance(navigation.read('published').config);
+    const appearance = require('./public/navigation-schema').appearance(navigation.read('site').config);
 
     // 返回支持客户端解密的 HTML 页面（使用分享码作为密钥）
     const html = `<!DOCTYPE html>
