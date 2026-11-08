@@ -19,8 +19,14 @@ test('browser: engine dropdown animates open, selects, and toggles closed', asyn
     const dropdown = page.locator('#engineDropdown');
     await button.click();
     await dropdown.waitFor({ state: 'visible' });
+    await dropdown.evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {}))));
     assert.equal(await button.getAttribute('aria-expanded'), 'true');
-    assert.equal(await dropdown.evaluate(el => getComputedStyle(el).animationName), 'engine-drop-in');
+    assert.equal(await dropdown.evaluate(el => getComputedStyle(el).animationName), 'dropdown-in');
+    assert.equal(await dropdown.evaluate(el => getComputedStyle(el).borderRadius), '12px');
+    const buttonBox = await button.boundingBox();
+    const menuBox = await dropdown.boundingBox();
+    assert.ok(Math.abs(menuBox.width - Math.max(buttonBox.width, 168)) <= 1,
+        `下拉宽度应取触发宽度与 168px 的较大者，实际 ${menuBox.width}`);
 
     const options = dropdown.locator('.engine-option');
     assert.ok(await options.count() >= 2, '默认至少有两个搜索引擎');

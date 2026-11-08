@@ -205,6 +205,8 @@
     const THEME_STORAGE_KEY = 'pabu-theme';
     const LOCAL_SETTINGS_FIELDS = ['searchEngine', 'searchEngines', 'theme', 'themeStyle', 'showBookmarkIcons'];
     const APPEARANCE_ORDER = ['auto', 'light', 'dark'];
+    // 下拉菜单共享的最小宽度。实际宽度取触发控件宽度与该值的较大者。
+    const DROPDOWN_MIN_WIDTH = 168;
 
     class App {
         constructor() {
@@ -2827,7 +2829,7 @@
                     const open = () => {
                         this.closeLocalSelects();
                         const rect = button.getBoundingClientRect();
-                        const width = Math.min(Math.max(rect.width, 184), innerWidth - 24);
+                        const width = Math.min(Math.max(rect.width, DROPDOWN_MIN_WIDTH), innerWidth - 24);
                         menu.style.width = `${width}px`;
                         menu.style.left = `${Math.max(12, Math.min(rect.right - width, innerWidth - width - 12))}px`;
                         const below = innerHeight - rect.bottom - 12;
@@ -2880,7 +2882,7 @@
                 button.disabled = select.disabled;
                 wrapper.querySelector('button span').textContent = select.selectedOptions[0]?.textContent || '请选择';
                 const menu = wrapper.querySelector('[role="listbox"]');
-                menu.innerHTML = [...select.options].map((option, index) => `<button type="button" role="option" tabindex="-1" id="${select.id}Option${index}" data-index="${index}" aria-selected="${option.selected}"${option.disabled ? ' disabled' : ''}><span>${this.esc(option.textContent)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>`).join('');
+                menu.innerHTML = [...select.options].map((option, index) => `<button type="button" role="option" tabindex="-1" id="${select.id}Option${index}" data-index="${index}" style="--option-index:${index}" aria-selected="${option.selected}"${option.disabled ? ' disabled' : ''}><span>${this.esc(option.textContent)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>`).join('');
             }
         }
 
@@ -3170,7 +3172,7 @@
 
             const dropdown = $('#engineDropdown');
             dropdown.innerHTML = this.config.searchEngines.map((e, i) =>
-                `<button type="button" role="option" aria-selected="${e.id === this.config.searchEngine}" class="engine-option${e.id === this.config.searchEngine ? ' active' : ''}" style="--engine-index:${i}" data-id="${this.esc(e.id)}">${this.esc(e.name)}</button>`
+                `<button type="button" role="option" aria-selected="${e.id === this.config.searchEngine}" class="engine-option${e.id === this.config.searchEngine ? ' active' : ''}" style="--option-index:${i}" data-id="${this.esc(e.id)}">${this.esc(e.name)}</button>`
             ).join('');
         }
 
@@ -3339,7 +3341,11 @@
             });
             const engineBtn = $('#engineBtn'), dropdown = $('#engineDropdown');
             engineBtn.onclick = event => {
-                event.stopPropagation(); dropdown.hidden = !dropdown.hidden;
+                event.stopPropagation();
+                const rect = engineBtn.getBoundingClientRect();
+                const width = Math.min(Math.max(rect.width, DROPDOWN_MIN_WIDTH), window.innerWidth - 24);
+                dropdown.style.width = `${width}px`;
+                dropdown.hidden = !dropdown.hidden;
                 engineBtn.setAttribute('aria-expanded', String(!dropdown.hidden));
                 if (!dropdown.hidden) dropdown.querySelector('.engine-option.active')?.focus();
             };
