@@ -544,6 +544,27 @@ test('网格的编辑控件由模板分支生成，且只在编辑态出现', ()
     assert.match(bm, /draggable="true"/, '编辑态书签卡是原生拖拽宿主');
 });
 
+test('显示图标开关真的渲染出图标，关掉则退回纯文字卡', () => {
+    const bm = methodBody(appSource, 'createBookmark');
+    // 开关必须参与渲染判断：此前只存了值，卡片永远走纯文字模板。
+    assert.match(bm, /showBookmarkIcons !== false/, '按本表面的配置判断是否显示图标');
+    assert.match(bm, /surface\.getConfig\(\)/, '读的是当前表面（首页 / 站点画布）的配置');
+    assert.match(bm, /class="bookmark-icon"[^>]*aria-hidden="true"/, '图标是装饰节点，不进入无障碍树');
+    assert.match(bm, /has-icon/, '带图标的卡片有独立钩子类');
+    assert.match(bm, /bookmark-text-only/, '关掉图标时退回纯文字卡');
+    // 图标是本地字母牌：不发任何外部请求，也不依赖被 CSP 拦掉的外站图片。
+    assert.doesNotMatch(bm, /<img|https?:\/\//, '图标不得是外站图片（CSP 只允许 self / data:）');
+    assert.match(bm, /Array\.from\(/, '按码点取首字，emoji 与中文不会被切成半个字符');
+    // 样式必须挂在主题令牌上，跟着经典 / 棱镜一起变。
+    const icon = /^\.bookmark-icon\s*\{([^}]*)\}/m.exec(fullCode);
+    assert.ok(icon, '.bookmark-icon 在材质层有规则');
+    assert.match(icon[1], /var\(--control-top\)/, '底色取主题控件渐变起点');
+    assert.match(icon[1], /var\(--control-bottom\)/, '底色取主题控件渐变终点');
+    assert.match(icon[1], /var\(--border\)/, '描边取主题边框色');
+    assert.match(icon[1], /var\(--text-secondary\)/, '字母取主题次级文字色');
+    assert.doesNotMatch(icon[1], /#[0-9a-f]{3,8}\b/i, '不写死颜色，避免与主题配色分叉');
+});
+
 test('编辑态书签的点击被拦下，不会跳转', () => {
     // 书签卡本体是 <a href>。不拦就会一边打开新标签页、一边想编辑。
     const body = methodBody(appSource, 'bindGridEdit');

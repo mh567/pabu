@@ -3191,9 +3191,16 @@
             const del = editing
                 ? `<button type="button" class="bookmark-del" data-del-bm="${bmIdx}" title="删除导航" aria-label="删除导航 ${this.esc(bm.title)}">✕</button>`
                 : '';
+            // 图标是标题首字的本地字母牌，不加载外站图片（CSP 只允许 self / data:）。
+            // 样式完全由主题令牌控制，跟着经典与棱镜主题一起变。
+            const showIcons = surface.getConfig().showBookmarkIcons !== false;
+            const initial = Array.from(String(bm.title || '').trim())[0] || '?';
+            const icon = showIcons
+                ? `<span class="bookmark-icon" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
+                : '';
             return html(`
-                <a class="bookmark bookmark-text-only"${attrs} href="${this.esc(bm.url)}" target="_blank" rel="noopener" title="${this.esc(bm.title)}">
-                    <span class="bookmark-title">${this.esc(bm.title)}</span>${del}
+                <a class="bookmark${showIcons ? ' has-icon' : ' bookmark-text-only'}"${attrs} href="${this.esc(bm.url)}" target="_blank" rel="noopener" title="${this.esc(bm.title)}">
+                    ${icon}<span class="bookmark-title">${this.esc(bm.title)}</span>${del}
                 </a>
             `);
         }
