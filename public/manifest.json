@@ -1,0 +1,17 @@
+{
+  "name": "Pabu",
+  "short_name": "Pabu",
+  "description": "导航管理、口令同步与临时文本分享",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#efede8",
+  "theme_color": "#945e4a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

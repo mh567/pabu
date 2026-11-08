@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- G-shaped curved arrow logo - transparent background -->
+  <!-- Based on the image: curved G shape with arrow pointing upper-right -->
+
+  <!-- Outer curved path -->
+  <path d="M 70 10
+           C 40 0, 8 25, 8 55
+           C 8 85, 35 98, 60 90
+           C 80 84, 92 68, 90 48
+           L 55 55
+           L 90 28
+           L 98 62
+           L 70 50
+           C 75 68, 60 82, 45 80
+           C 25 76, 20 58, 24 42
+           C 28 26, 48 16, 65 22
+           L 70 10 Z"
+        fill="#1a1a1a"/>
+</svg>

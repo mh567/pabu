@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="导航管理、口令同步与临时文本分享">
+    <meta name="theme-color" content="#efede8" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#211f1c" media="(prefers-color-scheme: dark)">
+    <title>Pabu · 导航与文本分享</title>
+    <script>
+        // no-cache：浏览器缓存配置但每次用 ETag 校验，未变时服务端返 304
+        // （零传输），既省去首屏往返的响应体，又保证配置始终最新。
+        window.__navPabuConfigPromise = fetch('/api/config', { cache: 'no-cache' }).then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        });
+        window.__navPabuConfigPromise.catch(() => {});
+
+        // 未登录访客在首页点过「外观」的话，选择存在本机。这里先于样式表
+        // 把它应用上，否则首屏会先按系统色画一遍再跳成选区色。
+        // 键名必须与 app.js 的 THEME_STORAGE_KEY 一致（有测试钉住这一点）。
+        try {
+            const storedTheme = localStorage.getItem('pabu-theme');
+            if (storedTheme === 'light' || storedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', storedTheme);
+            }
+        } catch (e) {}
+    </script>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="manifest" href="manifest.json">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#efede8;min-height:100vh;min-height:100dvh}
+        @media(prefers-color-scheme:dark){body{background:#211f1c}}
+        :root[data-theme="dark"] body{background:#211f1c}
+        .loader{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;border:2px solid rgba(92,76,64,.18);border-top-color:#945e4a;border-radius:50%;animation:spin .6s linear infinite}
+        @media(prefers-color-scheme:dark){.loader{border-color:rgba(222,203,185,.18);border-top-color:#c28d70}}
+        :root[data-theme="dark"] .loader{border-color:rgba(222,203,185,.18);border-top-color:#c28d70}
+        @keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+    </style>
+    <link rel="stylesheet" href="styles.css">
+    <!-- admin.css 不阻塞首屏渲染：media="print" 让浏览器异步下载，
+         onload 后切回 all 立即生效。它不止样式化管理面板——架构文档
+         规定站内对话框（showUiDialog，含首页分享保护面板）与错误
+         toast 的样式都定义在 admin.css，必须在用户交互前就位，
+         故不能按需加载，只能改为非阻塞。 -->
+    <link rel="stylesheet" href="admin.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="themes.css">
+</head>
+<body>
+    <div class="loader" id="loader"></div>
+    <div class="app" id="app" hidden>
+        <!-- 宽屏背板：收束整块内容；≤1023px 由 CSS 退回为透明容器 -->
+        <div class="backboard">
+        <div class="home-theme-toolbar">
+            <div id="homeThemeSwitcher" class="home-theme-switcher" role="group" aria-label="视觉主题"></div>
+        </div>
+        <header class="header">
+            <div class="search-wrapper">
+                <form class="search" id="searchForm">
+                    <button type="button" class="search-mode" id="modeBtn" hidden aria-label="切换搜索模式，当前为网页" aria-pressed="false">
+                        <span class="mode-label" data-label="web">网页</span>
+                        <span class="mode-label" data-label="exit" hidden>退出</span>
+                    </button>
+                    <button type="button" class="search-engine" id="engineBtn" title="切换搜索引擎" aria-haspopup="listbox" aria-expanded="false" aria-controls="engineDropdown">
+                        <span class="engine-name" id="engineName">Google</span>
+                        <svg class="engine-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    <textarea class="search-input" id="searchInput" rows="1" placeholder="搜索网页" aria-label="搜索网页" autocomplete="off" spellcheck="false"></textarea>
+                    <button type="submit" class="search-btn" title="搜索">搜索</button>
+                </form>
+                <div class="engine-dropdown" id="engineDropdown" role="listbox" aria-label="搜索引擎" hidden></div>
+            </div>
+        </header>
+        <div class="search-caption" aria-hidden="true">
+            <span><kbd>&gt;</kbd> 分享文本</span>
+            <span><kbd>取件码</kbd> 取回分享</span>
+        </div>
+        <main class="grid" id="grid"></main>
+        <section id="localNavigationTools" class="local-navigation-tools" aria-label="首页配置" data-open="true" hidden>
+            <button type="button" id="localSettingsToggle" class="local-settings-toggle" aria-expanded="true" aria-controls="localSettingsBody">
+                <span class="local-settings-rule" aria-hidden="true"></span>
+                <span id="localSettingsToggleText">收起设置</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                <span class="local-settings-rule" aria-hidden="true"></span>
+            </button>
+            <div class="local-settings-body" id="localSettingsBody">
+            <form id="localSettingsForm" novalidate>
+                <div class="local-settings-grid">
+                    <section class="local-settings-group local-settings-base" aria-labelledby="localBaseTitle">
+                        <h2 id="localBaseTitle">导航基础</h2>
+                        <div class="local-settings-row">
+                            <label for="localCurrentEngine">搜索引擎</label>
+                            <select id="localCurrentEngine"></select>
+                        </div>
+                        <div class="local-settings-row">
+                            <label for="localThemeStyleSelect">视觉主题</label>
+                            <select id="localThemeStyleSelect"></select>
+                        </div>
+                        <div class="local-settings-row">
+                            <label for="localThemeSelect">明暗模式</label>
+                            <select id="localThemeSelect"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select>
+                        </div>
+                        <div class="local-settings-row">
+                            <label for="localIconsToggle">导航图标</label>
+                            <label class="local-settings-inline"><input type="checkbox" id="localIconsToggle">显示图标</label>
+                        </div>
+                        <details class="local-settings-disclosure" id="localEnginesDetails">
+                            <summary>管理搜索引擎<span class="local-settings-count" id="localEngineCount"></span></summary>
+                            <p class="local-settings-hint" id="localEngineHint">搜索地址填写关键词前缀，例如 https://example.com/?q=。</p>
+                            <div class="local-engine-head" aria-hidden="true"><span></span><span>名称</span><span>搜索地址</span><span></span></div>
+                            <div id="localEngineEditor" class="local-engine-list"></div>
+                            <button type="button" class="btn btn-sm" id="localAddEngineBtn">添加搜索引擎</button>
+                        </details>
+                    </section>
+                    <details class="local-settings-disclosure local-settings-span" id="localDataDetails">
+                        <summary>数据管理</summary>
+                        <p class="local-settings-hint">导入、重置和撤销会替换当前设置。清除浏览器数据可能删除本机导航，请定期导出备份。</p>
+                        <div class="local-data-actions">
+                            <button type="button" class="btn btn-sm" id="localUndoBtn">撤销上一操作</button>
+                            <button type="button" class="btn btn-sm" id="localExportBtn">导出导航</button>
+                            <button type="button" class="btn btn-sm" id="localImportBtn">导入导航</button>
+                            <input type="file" id="localImportFile" accept="application/json,.json" hidden>
+                            <button type="button" class="btn btn-sm" id="localResetBtn">重置为当前默认</button>
+                        </div>
+                    </details>
+                </div>
+                <p id="localSettingsError" class="local-settings-error" role="alert" tabindex="-1" hidden></p>
+            </form>
+            </div>
+        </section>
+        <div class="local-navigation-feedback">
+            <p id="localNavigationStatus" role="status" aria-live="polite" hidden></p>
+            <button type="button" class="btn btn-sm" id="localAdoptBtn" hidden>采用其他标签页版本</button>
+        </div>
+        <!-- 页面级操作栏：背板底部的纯文字一行，随编辑态换词。
+             说明 / 同步（仅普通访客）/ 外观（仅管理员）/ 编辑（编辑态换成 取消 + 保存配置）/ 管理。 -->
+        <footer class="site-footer" aria-label="页面操作">
+            <nav class="site-footer-links">
+                <button type="button" class="site-footer-link" id="helpBtn" title="帮助">说明</button>
+                <span class="site-footer-sep" id="syncSep" aria-hidden="true">·</span>
+                <button type="button" class="site-footer-link" id="syncBtn" title="用口令连接云端空间">同步</button>
+                <span class="site-footer-sep" id="appearanceSep" aria-hidden="true" hidden>·</span>
+                <button type="button" class="site-footer-link" id="appearanceBtn" hidden title="外观" aria-label="外观">外观</button>
+                <span class="site-footer-sep" aria-hidden="true">·</span>
+                <button type="button" class="site-footer-link" id="layoutBtn" title="编辑首页导航" aria-pressed="false">编辑</button>
+                <button type="button" class="site-footer-link" id="localCancelBtn" hidden>取消</button>
+                <button type="submit" form="localSettingsForm" class="site-footer-link is-save" id="localDoneBtn" hidden>保存配置</button>
+                <span class="site-footer-sep" aria-hidden="true">·</span>
+                <button type="button" class="site-footer-link" id="adminBtn" title="管理 (Alt+A)">管理</button>
+            </nav>
+        </footer>
+        </div>
+    </div>
+    <div class="modal" id="modal" hidden>
+        <div class="modal-backdrop" id="modalBackdrop"></div>
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
+            <div class="modal-header">
+                <h2 id="adminTitle">管理</h2>
+                <div class="modal-actions">
+                    <span class="config-save-status" id="configSaveStatus" role="status" aria-live="polite"></span>
+                    <button class="btn" id="cancelBtn">取消</button>
+                    <button class="btn btn-primary" id="saveBtn">保存</button>
+                </div>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <!-- 分享二维码按需加载，见 app.js loadScript。 -->
+    <script src="navigation-schema.js"></script>
+    <script src="local-navigation.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

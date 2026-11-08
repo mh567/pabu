@@ -1,0 +1,19 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4001,
+    "https": {
+      "enabled": false,
+      "keyPath": "",
+      "certPath": "",
+      "caPath": ""
+    }
+  },
+  "security": {
+    "adminPasswordFile": ".admin-password.json"
+  },
+  "paths": {
+    "database": "pabu.db",
+    "logs": "logs"
+  }
+}

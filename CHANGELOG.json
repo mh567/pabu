@@ -1,0 +1,15 @@
+{
+  "versions": [
+    {
+      "version": "0.1.0",
+      "releaseDate": "2026-11-08",
+      "summary": "发布 Pabu 独立导航与口令同步服务。",
+      "highlights": [
+        "支持导航管理、跨设备同步与加密文本分享。"
+      ],
+      "changes": [
+        "从 Nav Sylph 拆分并移除监控 agent、私人收藏、备忘、时间线和 WebDAV。"
+      ]
+    }
+  ]
+}

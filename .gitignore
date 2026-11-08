@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Server config (user-specific)
+server-config.json
+
+# Security files
+.admin-password.json
+.credential-rotation.json
+.credential-rotation.json.tmp
+.admin-password.json.tmp
+config.json.tmp
+
+# Pabu server data
+config.json
+
+# SQLite database
+pabu.db
+pabu.db-wal
+pabu.db-shm
+
+# AI assistant files
+CLAUDE.md
+.claude/
+.commandcode/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Process files
+*.pid
+.pabu.pid
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+.project
+.settings/
+*.code-workspace
+
+# Build artifacts
+dist/
+build/
+tmp/
+temp/
+
+# Certificates (if stored locally)
+certs/
+*.pem
+*.key
+*.crt
+
+# Package manager lock files (optional, uncomment if needed)
+# package-lock.json
+
+# Backup files
+*.bak
+*.backup
+*~
