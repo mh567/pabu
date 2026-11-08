@@ -282,16 +282,23 @@ test('说明行贴搜索框、远离收藏区', () => {
     assert.match(header[1], /margin-bottom:\s*0/, '.header 的 margin-bottom 必须归零，间距交给说明行');
 });
 
-test('引擎下拉对齐到按钮下方，而不是搜索框左缘', () => {
+test('引擎下拉按按钮实际位置锚定，而不是写死偏移', () => {
     const drop = /^\.engine-dropdown\s*\{([\s\S]*?)\n\}/m.exec(fullCode);
     assert.ok(drop, '存在 .engine-dropdown 基础规则');
-    assert.match(drop[1], /left:\s*58px/,
-        'left 应为 58px（1+5+48+4），对齐引擎按钮左缘；left:0 会贴到搜索框左缘，与按钮脱开');
+    assert.match(drop[1], /left:\s*6px/,
+        '兜底 left 应为 6px（1+5），对应模式按钮隐藏时的引擎按钮左缘');
+    assert.equal(/left:\s*(?:58px|51px)/.test(drop[1]), false,
+        '不得写死模式按钮可见时的偏移');
 
-    // 窄屏块曾把 left 重置为 0，等于在大屏修好、小屏又坏掉
-    const narrow = mediaBlock(fullCode, '@media (max-width: 768px)', '.engine-dropdown');
-    assert.equal(/\.engine-dropdown\s*\{[^}]*left:\s*0/.test(narrow), false,
-        '≤768px 不得把 left 重置为 0');
+    // 模式按钮在普通模式下隐藏，引擎按钮的实际左缘会变，必须在打开时读数。
+    assert.match(appSource, /dropdown\.style\.left\s*=\s*`\$\{rect\.left - wrapperRect\.left\}px`/,
+        '打开时按搜索引擎按钮的实际位置设置 left');
+
+    const leftRules = [...fullCode.matchAll(/\.engine-dropdown\s*\{([^}]*)\}/g)]
+        .map(match => match[1])
+        .filter(block => /left\s*:/.test(block));
+    assert.ok(leftRules.every(block => /left:\s*6px/.test(block)),
+        'CSS 中只保留 6px 兜底，不得在窄屏写死其他偏移');
 });
 
 test('下拉选中项不铺底色', () => {

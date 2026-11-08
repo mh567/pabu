@@ -166,17 +166,14 @@ body {
 
 .engine-dropdown {
     position: absolute;
-    /* 4px 是与仿真一致的间距；58px 把下拉对齐到引擎按钮下方：
-       1px 表单边框 + 5px 内边距 + 48px 模式按钮 + 4px 间距 = 58px。
-       模式按钮三个标签都是两字，min-width 48px 稳定生效，这个偏移不会漂。
-       ≤370px 有独立偏移（模式按钮收窄到 43px、间距 2px）。 */
     top: calc(100% + 4px);
-    left: 58px;
+    /* 兜底值对应正常模式：1px 表单边框 + 5px 内边距 = 6px。
+       打开时由 JS 按搜索引擎按钮的实际位置覆盖，避免模式按钮显隐后偏移漂移。 */
+    left: 6px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-lg);
-    min-width: 152px;
     padding: 5px;
     z-index: 100;
 }
@@ -495,10 +492,7 @@ body {
     .search-input { padding: 10px 12px; font-size: 16px; }
     .search-btn { width: 36px; height: 36px; }
     .search-btn svg { width: 16px; height: 16px; }
-    /* 这里原本把 left 重置为 0，把下拉拉回搜索框左缘、与引擎按钮脱开。
-       窄屏下保持与基础规则同一条偏移（模式按钮 min-width 未变）。
-       原先还带着一个 `right: auto` —— 基础规则从未设过 right，是死声明。 */
-    .engine-dropdown { min-width: 140px; }
+    /* 下拉位置由 JS 按按钮实际位置设置，窄屏不再改写 left。 */
 }
 
 @media (max-width: 480px) {
@@ -1889,7 +1883,7 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 /* 三列铺满可用宽度：原先的 max-width:304px 在 390px 宽的机型上右侧留出大片空白，
    且使上一条 ≤600px 规则里的 auto-fill 96px 变成死代码（同为 ≤480px 且同特异性，后者在后）。 */
 @media (max-width: 480px) { .bookmarks { max-width: 100%; grid-template-columns: repeat(3,minmax(0,1fr)); } }
-@media (max-width: 370px) { .search { gap: 2px; } .search-mode { min-width: 43px; padding: 0 6px; } .search-engine { min-width: 55px; padding: 0 5px; } .search-input { padding: 0 5px; } .search-btn { min-width: 43px; padding: 0 6px; } .engine-dropdown { left: 51px; } }
+@media (max-width: 370px) { .search { gap: 2px; } .search-mode { min-width: 43px; padding: 0 6px; } .search-engine { min-width: 55px; padding: 0 5px; } .search-input { padding: 0 5px; } .search-btn { min-width: 43px; padding: 0 6px; } }
 
 /* ========== 宽屏背板 + 快捷键说明行 ==========
    背板是本次新增的元素。文件尾段不再重复声明本区块的规则，

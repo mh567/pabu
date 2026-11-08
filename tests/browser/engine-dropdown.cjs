@@ -25,8 +25,12 @@ test('browser: engine dropdown animates open, selects, and toggles closed', asyn
     assert.equal(await dropdown.evaluate(el => getComputedStyle(el).borderRadius), '12px');
     const buttonBox = await button.boundingBox();
     const menuBox = await dropdown.boundingBox();
-    assert.ok(Math.abs(menuBox.width - Math.max(buttonBox.width, 168)) <= 1,
-        `下拉宽度应取触发宽度与 168px 的较大者，实际 ${menuBox.width}`);
+    assert.ok(Math.abs(menuBox.x - buttonBox.x) <= 1,
+        `下拉左缘应与搜索引擎按钮对齐，实际按钮 ${buttonBox.x}，菜单 ${menuBox.x}`);
+    assert.ok(menuBox.y >= buttonBox.y + buttonBox.height,
+        '下拉应展开在搜索引擎按钮下方');
+    assert.ok(Math.abs(menuBox.width - Math.max(buttonBox.width, 120)) <= 1,
+        `下拉宽度应取触发宽度与 120px 的较大者，实际 ${menuBox.width}`);
 
     const options = dropdown.locator('.engine-option');
     assert.ok(await options.count() >= 2, '默认至少有两个搜索引擎');

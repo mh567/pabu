@@ -384,8 +384,8 @@ test('browser: settings drawer keeps drafts, themed selects support keyboard and
     assert.equal(await page.locator('#localCurrentEngineMenu').evaluate(el => getComputedStyle(el).borderRadius), '12px');
     const selectBox = await button.boundingBox();
     const menuBox = await page.locator('#localCurrentEngineMenu').boundingBox();
-    assert.ok(Math.abs(menuBox.width - Math.max(selectBox.width, 168)) <= 1,
-        `设置下拉宽度应取触发宽度与 168px 的较大者，实际 ${menuBox.width}`);
+    assert.ok(Math.abs(menuBox.width - Math.max(selectBox.width, 120)) <= 1,
+        `设置下拉宽度应取触发宽度与 120px 的较大者，实际 ${menuBox.width}`);
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     const chosen = await select.inputValue();

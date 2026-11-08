@@ -206,7 +206,8 @@
     const LOCAL_SETTINGS_FIELDS = ['searchEngine', 'searchEngines', 'theme', 'themeStyle', 'showBookmarkIcons'];
     const APPEARANCE_ORDER = ['auto', 'light', 'dark'];
     // 下拉菜单共享的最小宽度。实际宽度取触发控件宽度与该值的较大者。
-    const DROPDOWN_MIN_WIDTH = 168;
+    // 120px 足以容纳最长的 DuckDuckGo（73px 文本 + 选项和菜单内边距）。
+    const DROPDOWN_MIN_WIDTH = 120;
 
     class App {
         constructor() {
@@ -3343,8 +3344,10 @@
             engineBtn.onclick = event => {
                 event.stopPropagation();
                 const rect = engineBtn.getBoundingClientRect();
+                const wrapperRect = dropdown.parentElement.getBoundingClientRect();
                 const width = Math.min(Math.max(rect.width, DROPDOWN_MIN_WIDTH), window.innerWidth - 24);
                 dropdown.style.width = `${width}px`;
+                dropdown.style.left = `${rect.left - wrapperRect.left}px`;
                 dropdown.hidden = !dropdown.hidden;
                 engineBtn.setAttribute('aria-expanded', String(!dropdown.hidden));
                 if (!dropdown.hidden) dropdown.querySelector('.engine-option.active')?.focus();
