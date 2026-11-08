@@ -466,7 +466,8 @@
             const status = $('#localNavigationStatus');
             if (status) {
                 status.textContent = message;
-                status.hidden = !this.editLayout && !error;
+                const quiet = !error && (message === '仅保存在本机' || message === '正在保存到本机');
+                status.hidden = quiet || (!this.editLayout && !error);
                 this.localStatusError = error;
                 status.dataset.state = error ? 'error' : '';
             }
@@ -2807,7 +2808,7 @@
                     const label = document.querySelector(`label[for="${select.id}"]`);
                     label.id = `${select.id}Label`;
                     label.htmlFor = `${select.id}Button`;
-                    wrapper.insertAdjacentHTML('beforeend', `<button type="button" class="local-select-button" id="${select.id}Button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${select.id}Menu" aria-labelledby="${label.id} ${select.id}Value"><span id="${select.id}Value"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button><div class="local-select-menu" id="${select.id}Menu" popover="auto" role="listbox" aria-labelledby="${label.id}"></div>`);
+                    wrapper.insertAdjacentHTML('beforeend', `<button type="button" class="local-select-button" id="${select.id}Button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${select.id}Menu" aria-labelledby="${label.id} ${select.id}Value"><span id="${select.id}Value"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button><div class="local-select-menu" id="${select.id}Menu" popover="manual" role="listbox" aria-labelledby="${label.id}"></div>`);
                     select.hidden = true;
                     const button = wrapper.querySelector('button');
                     const menu = wrapper.querySelector('[role="listbox"]');
@@ -2986,6 +2987,9 @@
         bindLocalNavigation() {
             this.setLocalStatus(this.localError || '仅保存在本机', !!this.localError);
             window.addEventListener('resize', () => this.closeLocalSelects());
+            document.addEventListener('pointerdown', event => {
+                if (!event.target.closest?.('.local-select')) this.closeLocalSelects();
+            }, true);
             window.addEventListener('scroll', event => {
                 if (!event.target.closest?.('.local-select-menu')) {
                     const openMenu = document.querySelector('.local-select-menu:popover-open');
@@ -3165,8 +3169,8 @@
             $('#engineBtn').setAttribute('aria-label', `选择搜索引擎，当前为${current.name}`);
 
             const dropdown = $('#engineDropdown');
-            dropdown.innerHTML = this.config.searchEngines.map(e =>
-                `<button type="button" role="option" aria-selected="${e.id === this.config.searchEngine}" class="engine-option${e.id === this.config.searchEngine ? ' active' : ''}" data-id="${this.esc(e.id)}">${this.esc(e.name)}</button>`
+            dropdown.innerHTML = this.config.searchEngines.map((e, i) =>
+                `<button type="button" role="option" aria-selected="${e.id === this.config.searchEngine}" class="engine-option${e.id === this.config.searchEngine ? ' active' : ''}" style="--engine-index:${i}" data-id="${this.esc(e.id)}">${this.esc(e.name)}</button>`
             ).join('');
         }
 

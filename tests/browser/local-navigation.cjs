@@ -347,7 +347,7 @@ test('browser: ordinary settings appear below navigation only while editing; sav
     for (const id of ['localUndoBtn', 'localExportBtn', 'localImportBtn', 'localResetBtn']) assert.equal(await page.locator('#' + id).isVisible(), false);
     await settings(page);
     assert.equal(await page.locator('#localEnginesDetails').getAttribute('open'), null);
-    assert.equal(await page.locator('#localDataDetails').getAttribute('open'), null);
+    assert.notEqual(await page.locator('#localDataDetails').getAttribute('open'), null, '数据管理默认展开');
     assert.equal(await page.locator('#localNavigationTools').evaluate(el => el.previousElementSibling.id), 'grid');
     assert.equal(await page.locator('#engineBtn').isDisabled(), true);
     const engine = await page.locator('#localCurrentEngine option').nth(1).getAttribute('value');
@@ -388,6 +388,10 @@ test('browser: settings drawer keeps drafts, themed selects support keyboard and
     assert.equal(await page.locator('#localSettingsForm').evaluate(el => el.inert), true);
     await page.locator('#localSettingsToggle').click();
     assert.equal(await select.inputValue(), chosen);
+    await button.click();
+    await page.waitForFunction(() => document.querySelector('#localCurrentEngineMenu').matches(':popover-open'));
+    await button.click();
+    await page.waitForFunction(() => !document.querySelector('#localCurrentEngineMenu').matches(':popover-open'));
     await button.click();
     await page.keyboard.press('Escape');
     assert.equal(await button.getAttribute('aria-expanded'), 'false');
