@@ -546,6 +546,45 @@ do_install() {
     echo ""
 }
 
+show_service_logs() {
+    systemctl status "${APP_NAME}" --no-pager 2>/dev/null || true
+    if check_command journalctl; then
+        echo ""
+        journalctl -u "${APP_NAME}" -n 30 --no-pager 2>/dev/null || true
+    fi
+}
+
+stop_manual_process() {
+    if ! is_running; then
+        log_warn "服务未运行"
+        [ -f "${PID_FILE}" ] && rm -f "${PID_FILE}"
+        return 0
+    fi
+
+    local pid
+    pid=$(cat "${PID_FILE}")
+    log_step "停止服务 (PID: ${pid})..."
+
+    kill -TERM ${pid} 2>/dev/null || true
+
+    local count=0
+    while is_running && [ ${count} -lt 10 ]; do
+        sleep 1
+        count=$((count + 1))
+        echo -n "."
+    done
+    echo ""
+
+    if is_running; then
+        log_warn "强制终止..."
+        kill -KILL ${pid} 2>/dev/null || true
+        sleep 1
+    fi
+
+    rm -f "${PID_FILE}"
+    log_info "服务已停止"
+}
+
 do_start() {
     get_config
 
@@ -554,13 +593,19 @@ do_start() {
             log_warn "systemd 服务已在运行"
             return 0
         fi
+        if is_running; then
+            log_warn "检测到手动启动的进程，先停止以避免端口冲突"
+            stop_manual_process
+        fi
         log_step "启动 systemd 服务..."
         if ! control_systemd_service start; then
             log_error "systemd 服务启动失败"
+            show_service_logs
             return 1
         fi
         if ! systemctl is-active --quiet "${APP_NAME}.service"; then
             log_error "systemd 服务启动后未进入运行状态"
+            show_service_logs
             return 1
         fi
         log_info "systemd 服务启动成功"
@@ -600,51 +645,29 @@ do_start() {
 
 do_stop() {
     if has_app_systemd_service; then
-        if ! systemctl is-active --quiet "${APP_NAME}.service"; then
-            log_warn "systemd 服务未运行"
+        if systemctl is-active --quiet "${APP_NAME}.service"; then
+            log_step "停止 systemd 服务..."
+            if ! control_systemd_service stop; then
+                log_error "systemd 服务停止失败"
+                return 1
+            fi
+            if systemctl is-active --quiet "${APP_NAME}.service"; then
+                log_error "systemd 服务仍在运行"
+                return 1
+            fi
+            log_info "systemd 服务已停止"
             return 0
         fi
-        log_step "停止 systemd 服务..."
-        if ! control_systemd_service stop; then
-            log_error "systemd 服务停止失败"
-            return 1
+
+        log_warn "systemd 服务未运行"
+        if ! is_running; then
+            [ -f "${PID_FILE}" ] && rm -f "${PID_FILE}"
+            return 0
         fi
-        if systemctl is-active --quiet "${APP_NAME}.service"; then
-            log_error "systemd 服务仍在运行"
-            return 1
-        fi
-        log_info "systemd 服务已停止"
-        return 0
+        log_warn "检测到手动启动的进程，继续停止"
     fi
 
-    if ! is_running; then
-        log_warn "服务未运行"
-        [ -f "${PID_FILE}" ] && rm -f "${PID_FILE}"
-        return 0
-    fi
-
-    local pid
-    pid=$(cat "${PID_FILE}")
-    log_step "停止服务 (PID: ${pid})..."
-
-    kill -TERM ${pid} 2>/dev/null || true
-
-    local count=0
-    while is_running && [ ${count} -lt 10 ]; do
-        sleep 1
-        count=$((count + 1))
-        echo -n "."
-    done
-    echo ""
-
-    if is_running; then
-        log_warn "强制终止..."
-        kill -KILL ${pid} 2>/dev/null || true
-        sleep 1
-    fi
-
-    rm -f "${PID_FILE}"
-    log_info "服务已停止"
+    stop_manual_process
 }
 
 do_restart() {
@@ -945,7 +968,7 @@ EOF
         echo ""
     else
         log_error "服务启动失败"
-        systemctl status "${APP_NAME}" --no-pager
+        show_service_logs
         exit 1
     fi
 }

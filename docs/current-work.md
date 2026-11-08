@@ -13,6 +13,7 @@
 - 版本从 `0.1.0` 开始。初始提交 `4de2dd8` 已推送到 `https://github.com/mh567/pabu` 的 `main`，并发布 v0.1.0；Release 不附带二进制包，部署通过仓库源码执行 `npm ci`。
 - 新增根目录管理脚本 `pabu.sh`，提供一键安装、更新、启停、状态、日志、systemd 自启和卸载。安装与更新直接下载对应 Release tag 的源码包，不依赖 Release 附件；更新前备份并恢复 `.env`、`config.json`、`server-config.json`、`.admin-password.json` 和 `pabu.db*`。
 - `README.md` 与 `DEPLOYMENT.md` 的部署章节改为脚本化流程。
+- 修复 `pabu.sh` 在 systemd 单元已存在但未运行时无法停止手动进程的问题。启用和启动前会先清理手动进程，systemd 启动失败时输出 `systemctl status` 与最近 30 行 journal。
 
 ## 验证
 
