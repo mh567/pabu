@@ -10,7 +10,7 @@
 - 移除服务器监控与 Go agent、私人收藏库、备忘与待办、时间线、微博热搜和 WebDAV。服务器端对应接口返回 404。
 - 邀请码采用管理员签发的一次性策略，有效期 48 小时，不开放注册。
 - Pabu 默认端口为 4001，管理会话 Cookie 为 `pabu_session`，SQLite 库为 `pabu.db`，访客 IndexedDB 为 `pabu-personal`，Service Worker 缓存使用 Pabu 标识。
-- 版本从 `0.1.0` 开始。项目没有配置 Git 远端，本轮不提交、不推送、不发布。
+- 版本从 `0.1.0` 开始。初始提交 `4de2dd8` 已推送到 `https://github.com/mh567/pabu` 的 `main`，并发布 v0.1.0；Release 不附带二进制包，部署通过仓库源码执行 `npm ci`。
 
 ## 验证
 
