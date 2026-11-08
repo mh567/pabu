@@ -3,6 +3,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { installation } = require('./helpers/installation');
 
+test('HTTP: /admin serves the dedicated admin shell without a front-page entry', async (t) => {
+    const app = await installation(t);
+    await app.start();
+    for (const route of ['/admin', '/admin/']) {
+        const res = await app.request(route);
+        assert.equal(res.status, 200, `${route} 应返回管理页`);
+        assert.match(res.headers.get('content-type') || '', /text\/html/);
+        const html = await res.text();
+        assert.match(html, /classList\.add\('admin-page'\)/, '管理页应先打上整页标记');
+        assert.equal(html.includes('id="adminBtn"'), false, '首页管理按钮已移除');
+    }
+});
+
 test('HTTP: weak password can only be changed, strong session protects navigation and survives restart', async (t) => {
     const app = await installation(t);
     await app.start();

@@ -30,7 +30,7 @@ async function setup(t) {
 }
 
 async function loginKeepingPanel(page) {
-    await page.locator('#adminBtn').click();
+    await page.goto(new URL('/admin', page.url()).href);
     await page.locator('.ui-dialog input[type="password"]').fill('StrongPass123!');
     await page.locator('.ui-dialog button[type="submit"]').click();
     await page.locator('#modal').waitFor({ state: 'visible' });

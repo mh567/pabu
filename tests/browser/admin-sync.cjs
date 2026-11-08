@@ -18,11 +18,12 @@ async function setup(t) {
     return { app, browser, first, second, a, b };
 }
 async function login(page) {
-    await page.locator('#adminBtn').click();
+    await page.goto(new URL('/admin', page.url()).href);
     await page.locator('.ui-dialog input[type="password"]').fill('StrongPass123!');
     await page.locator('.ui-dialog button[type="submit"]').click();
     await page.locator('#modal').waitFor({ state: 'visible' });
     await page.locator('#cancelBtn').click();
+    await page.waitForURL(url => !url.pathname.startsWith('/admin'));
     await page.locator('#modal').waitFor({ state: 'hidden' });
 }
 async function category(page, name) {
@@ -36,9 +37,11 @@ const heading = (page, name) => page.getByRole('heading', { name, exact: true })
 /** 保存并退出编辑。底栏里「编辑」与编辑态的「保存编辑」互斥显示，保存要取另一个元素。 */
 const saveEdit = page => page.locator('#localDoneBtn').click();
 async function logout(page) {
-    await page.locator('#adminBtn').click();
-    await page.getByRole('tab', { name: '账户与备份' }).click();
+    await page.goto(new URL('/admin', page.url()).href);
+    await page.locator('#modal').waitFor({ state: 'visible' });
+    await page.getByRole('tab', { name: '账户', exact: true }).click();
     await page.locator('#logoutBtn').click();
+    await page.waitForURL(url => !url.pathname.startsWith('/admin'));
 }
 
 test('browser: two clean devices share administrator navigation, retain independent ordinary data and independent sessions', async t => {
@@ -145,7 +148,7 @@ test('browser: personal engine definitions propagate and a late administrator re
     const { a, b } = await setup(t);
     await category(a, 'Ordinary late-response baseline'); await saveEdit(a);
     await login(a); await login(b);
-    await a.locator('#adminBtn').click();
+    await a.goto(new URL('/admin', a.url()).href);
     await a.locator('[aria-controls="enginesSection"]').click(); await a.locator('#addEngine').click();
     const engine = a.locator('#enginesEditor .item').last();
     await engine.locator('[data-field="name"]').fill('Synced engine');
@@ -153,7 +156,7 @@ test('browser: personal engine definitions propagate and a late administrator re
     await a.locator('#saveBtn').click();
     await a.getByText('设置已保存到服务器', { exact: true }).waitFor();
     await check(b);
-    await b.locator('#adminBtn').click();
+    await b.goto(new URL('/admin', b.url()).href);
     await b.locator('[aria-controls="enginesSection"]').click();
     await b.locator('#enginesEditor input[value="Synced engine"]').waitFor();
     await b.locator('#cancelBtn').click();

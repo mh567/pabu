@@ -210,6 +210,7 @@
 
     class App {
         constructor() {
+            this.adminPage = location.pathname === '/admin' || location.pathname === '/admin/';
             this.config = null;
             this.authenticated = false;
             // 本会话的外观覆盖。正常情况下这份状态在 localStorage 里，
@@ -3099,10 +3100,15 @@
                 this.applyTheme();
                 this.render();
                 this.bind();
-                $('#loader').remove();
-                $('#app').hidden = false;
+                if (this.adminPage) {
+                    document.title = 'Pabu 管理后台';
+                } else {
+                    $('#loader').remove();
+                    $('#app').hidden = false;
+                }
                 requestAnimationFrame(() => {
-                    this.restoreSession();
+                    if (this.adminPage) this.openAdminPage();
+                    else this.restoreSession();
                     this.loadSyncState();
                 });
                 const register = () => navigator.serviceWorker?.register('/sw.js').catch(error => console.warn('Service worker registration failed:', error));
@@ -3461,7 +3467,6 @@
                     this.pasteUserResized = true; window.addEventListener('pointerup', settleDrag); window.addEventListener('pointercancel', settleDrag);
                 }
             });
-            $('#adminBtn').onclick = () => this.openAdmin();
             $('#helpBtn').onclick = () => this.showHelp();
             $('#layoutBtn').onclick = () => this.toggleEditLayout();
             $('#appearanceBtn').onclick = () => this.cycleTheme();
@@ -3475,7 +3480,9 @@
             });
             window.addEventListener('resize', () => this.closeLocalSelects());
             $('#modalBackdrop').onclick = () => this.closeAdmin();
-            $('#cancelBtn').onclick = () => this.closeAdmin();
+            $('#cancelBtn').onclick = async () => {
+                if ((await this.closeAdmin()) && this.adminPage) location.href = '/';
+            };
             $('#saveBtn').onclick = () => this.save();
             $('#modal .modal-content').addEventListener('keydown', event => {
                 if (event.key !== 'Tab' || $('#modal').hidden || $('.ui-dialog-overlay')) return;
@@ -3502,7 +3509,9 @@
             document.onkeydown = event => {
                 if (event.key !== 'Escape') return;
                 if (!dropdown.hidden) { dropdown.hidden = true; engineBtn.setAttribute('aria-expanded', 'false'); engineBtn.focus(); }
-                else if (!$('#modal').hidden) this.closeAdmin();
+                else if (!$('#modal').hidden) {
+                    this.closeAdmin().then(closed => { if (closed && this.adminPage) location.href = '/'; });
+                }
                 else if (this.pasteMode) this.exitPasteMode();
                 else {
                     const pickup = this.resolvePickup(input.value);
@@ -4806,7 +4815,7 @@
 
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu</h3><div class="help-section"><strong>导航</strong><p>点击「编辑」管理分类与链接。访客配置保存在本机，管理员可编辑个人导航并发布站点默认模板。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」使用同一口令连接设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写并发送临时加密文本，接收方打开链接或输入取件码查看。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和外观。访客配置保存在本机，管理员可发布站点默认首页。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };
@@ -4814,15 +4823,37 @@
             overlay.querySelector('.help-close').focus();
         }
 
+        async openAdminPage() {
+            try {
+                await this.restoreSession();
+                $('#loader')?.remove();
+                await this.openAdmin();
+            } catch (error) {
+                console.error('管理页初始化失败:', error);
+                $('#loader')?.remove();
+                await this.notice('无法进入管理后台：' + (error.message || '未知错误'));
+                location.href = '/';
+            }
+        }
+
         async openAdmin() {
             if (this.themeStyleSaving) return;
             this.adminReturnFocus = document.activeElement;
             if (!this.authenticated) {
                 const values = await this.showUiDialog({ title: '进入管理', fields: [{ label: '管理密码', type: 'password' }], options: [{ name: 'trustDevice', kind: 'checkbox', value: '1', label: '信任此设备（30 天内免重复登录）', hint: '不勾选则本次登录 24 小时后自动退出' }] });
-                if (!values?.values[0]) return;
+                if (!values?.values[0]) { if (this.adminPage) location.href = '/'; return; }
                 const res = await API.request('/api/verify-password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': values.values[0] }, body: '{}' });
-                if (!res.data?.valid) { await this.notice(res.data?.code === 'locked' ? '登录已暂时锁定' : '密码错误', res.data?.error || '无法进入管理'); return; }
-                if (res.data.passwordChangeRequired) { this.passwordChangeRequired = true; await this.changePassword(); return; }
+                if (!res.data?.valid) {
+                    await this.notice(res.data?.code === 'locked' ? '登录已暂时锁定' : '密码错误', res.data?.error || '无法进入管理');
+                    if (this.adminPage) return this.openAdmin();
+                    return;
+                }
+                if (res.data.passwordChangeRequired) {
+                    this.passwordChangeRequired = true;
+                    await this.changePassword();
+                    if (this.adminPage && !this.authenticated) location.href = '/';
+                    return;
+                }
                 await this.finishLocalDraft(); this.privateEpoch = (this.privateEpoch || 0) + 1; this.authenticated = true; this.pauseSyncForAdmin(); this.notifyIdentityChanged();
                 API.envChangeNotified = false; this.sessionTrusted = false;
                 if (values.choices.trustDevice) this.sessionTrusted = await this.trustDevice();
@@ -4830,7 +4861,12 @@
             }
             if (!this.personalNavigationLoaded) await this.loadPersonalNavigation();
             if (!this.editLayout) this.beginConfigEdit();
-            this.renderAdminPanel(); $('#modal').hidden = false; $('#cancelBtn').focus();
+            this.renderAdminPanel();
+            if (this.adminPage) {
+                $('#adminTitle').textContent = 'Pabu 管理后台';
+                $('#cancelBtn').textContent = '返回首页';
+            }
+            $('#modal').hidden = false; $('#cancelBtn').focus();
         }
 
         beginConfigEdit() {
@@ -5131,6 +5167,7 @@
                 if (!await this.closeAdmin()) return;
                 try { const result = await API.post('/api/logout', {}); if (!result.success) throw new Error(); } catch { this.showToast('退出请求失败，请检查网络后重试', 'error'); return; }
                 this.clearPrivateState(); this.notifyIdentityChanged(); await this.refreshLocalNavigation();
+                if (this.adminPage) location.href = '/';
             };
         }
 
@@ -5207,8 +5244,13 @@
                 const res = await this.saveNavigation({ signal });
                 if (res.success) {
                     this.configDirty = false;
+                    this.configSnapshot = JSON.stringify(this.config);
                     this.render();
-                    await this.closeAdmin(true);
+                    if (this.adminPage) {
+                        this.updateConfigStatus('已保存到服务器', 'success');
+                    } else {
+                        await this.closeAdmin(true);
+                    }
                     this.showToast('设置已保存到服务器');
                 } else {
                     reportFailure(res.error || '保存失败，请重试');

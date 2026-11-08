@@ -1299,16 +1299,22 @@ function methodBodyOf(src, signature) {
     throw new Error(`${signature} 方法体未闭合`);
 }
 
-test('底栏入口顺序固定，外观只给管理员', () => {
+test('底栏入口顺序固定，外观只给管理员，管理入口不在一楼', () => {
     const footerStart = indexCode.indexOf('class="site-footer"');
     assert.ok(footerStart > 0, '首页仍有页面操作栏');
     const footer = indexCode.slice(footerStart, indexCode.indexOf('</footer>', footerStart));
     assert.ok(footer.length > 100, '取到操作栏区块');
 
-    const order = ['id="helpBtn"', 'id="appearanceBtn"', 'id="layoutBtn"', 'id="adminBtn"']
+    const order = ['id="helpBtn"', 'id="appearanceBtn"', 'id="layoutBtn"']
         .map(id => footer.indexOf(id));
-    assert.ok(order.every(i => i >= 0), '四个入口都在操作栏内');
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), '顺序：说明 → 外观 → 编辑 → 管理');
+    assert.ok(order.every(i => i >= 0), '三个入口都在操作栏内');
+    assert.deepEqual(order, [...order].sort((a, b) => a - b), '顺序：说明 → 外观 → 编辑');
+    assert.equal(footer.includes('id="adminBtn"'), false, '首页不再展示管理入口');
+
+    assert.match(indexCode, /classList\.add\('admin-page'\)/, '/admin 先打后台页面标记');
+    assert.match(appCode, /this\.adminPage = location\.pathname === '\/admin'/, 'app.js 识别 /admin 路径');
+    assert.match(appCode, /if \(this\.adminPage\) this\.openAdminPage\(\)/, '/admin 自动进入管理后台');
+    assert.match(adminCode, /\.admin-page \.app \{ display: none !important; \}/, '后台页面隐藏首页内容');
 
     // 外观入口带上 hidden，未登录就看不到，普通访客的外观在编辑区里设置。
     const btnTag = indexCode.match(/<button[^>]*id="appearanceBtn"[^>]*>/)[0];

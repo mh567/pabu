@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="description" content="导航管理、口令同步与临时文本分享">
+    <meta name="description" content="导航编辑、多端同步与文本分享">
     <meta name="theme-color" content="#efede8" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#211f1c" media="(prefers-color-scheme: dark)">
-    <title>Pabu · 导航与文本分享</title>
+    <title>Pabu导航</title>
     <script>
         // no-cache：浏览器缓存配置但每次用 ETag 校验，未变时服务端返 304
         // （零传输），既省去首屏往返的响应体，又保证配置始终最新。
@@ -25,6 +25,11 @@
                 document.documentElement.setAttribute('data-theme', storedTheme);
             }
         } catch (e) {}
+
+        // /admin 是独立后台页面：先打上标记，让样式表加载时就隐藏首页内容。
+        if (location.pathname === '/admin' || location.pathname === '/admin/') {
+            document.documentElement.classList.add('admin-page');
+        }
     </script>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="icon.svg">
@@ -135,7 +140,7 @@
             <button type="button" class="btn btn-sm" id="localAdoptBtn" hidden>采用其他标签页版本</button>
         </div>
         <!-- 页面级操作栏：背板底部的纯文字一行，随编辑态换词。
-             说明 / 同步（仅普通访客）/ 外观（仅管理员）/ 编辑（编辑态换成 取消 + 保存配置）/ 管理。 -->
+             说明 / 同步（仅普通访客）/ 外观（仅管理员）/ 编辑（编辑态换成 取消 + 保存配置）。 -->
         <footer class="site-footer" aria-label="页面操作">
             <nav class="site-footer-links">
                 <button type="button" class="site-footer-link" id="helpBtn" title="帮助">说明</button>
@@ -147,8 +152,6 @@
                 <button type="button" class="site-footer-link" id="layoutBtn" title="编辑首页导航" aria-pressed="false">编辑</button>
                 <button type="button" class="site-footer-link" id="localCancelBtn" hidden>取消</button>
                 <button type="submit" form="localSettingsForm" class="site-footer-link is-save" id="localDoneBtn" hidden>保存配置</button>
-                <span class="site-footer-sep" aria-hidden="true">·</span>
-                <button type="button" class="site-footer-link" id="adminBtn" title="管理 (Alt+A)">管理</button>
             </nav>
         </footer>
         </div>

@@ -362,6 +362,9 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
+const publicIndex = path.join(config.rootDir, 'public', 'index.html');
+app.get(['/admin', '/admin/'], (req, res) => res.sendFile(publicIndex));
+
 app.use(express.static(path.join(config.rootDir, 'public'), {
     index: 'index.html',
     extensions: ['html', 'htm']

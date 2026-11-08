@@ -66,6 +66,26 @@
     border-radius: 16px;
 }
 
+/* /admin：同一套管理面板以整页呈现，首页 DOM 不参与布局。 */
+.admin-page .app { display: none !important; }
+.admin-page .modal:not([hidden]) {
+    position: static;
+    display: block;
+    animation: none;
+}
+.admin-page .modal-backdrop { display: none; }
+.admin-page .modal-content {
+    width: 100%;
+    max-width: 1200px;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0 auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+}
+
 .modal-header {
     position: relative;
     flex: 0 0 auto;

@@ -1,7 +1,7 @@
 {
   "name": "pabu",
-  "version": "0.1.0",
-  "description": "A personal navigation page with password-based sync and encrypted text sharing",
+  "version": "0.2.0",
+  "description": "A self-hosted navigation page with navigation editing, multi-device sync, and encrypted text sharing",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

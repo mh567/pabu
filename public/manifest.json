@@ -1,7 +1,7 @@
 {
-  "name": "Pabu",
-  "short_name": "Pabu",
-  "description": "导航管理、口令同步与临时文本分享",
+  "name": "Pabu导航",
+  "short_name": "Pabu导航",
+  "description": "导航编辑、多端同步与文本分享",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#efede8",

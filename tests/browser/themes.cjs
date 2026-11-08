@@ -26,7 +26,7 @@ async function appearance(page, style, mode) {
     await page.waitForFunction(({ style, mode }) => document.documentElement.dataset.themeStyle === style && (document.documentElement.dataset.theme || 'auto') === mode, { style, mode });
 }
 async function login(page) {
-    await page.locator('#adminBtn').click();
+    await page.goto(new URL('/admin', page.url()).href);
     await page.locator('.ui-dialog input[type="password"]').fill('StrongPass123!');
     await page.locator('.ui-dialog button[type="submit"]').click();
     await page.locator('#modal').waitFor({ state: 'visible' });
@@ -35,7 +35,9 @@ async function saveAdmin(page) {
     const response = page.waitForResponse(r => r.url().endsWith('/api/admin/navigation') && r.request().method() === 'POST');
     await page.locator('#saveBtn').click();
     assert.equal((await response).status(), 200);
-    await page.locator('#modal').waitFor({ state: 'hidden' });
+    await page.getByText('设置已保存到服务器', { exact: true }).waitFor();
+    await page.goto(new URL('/', page.url()).href);
+    await page.locator('#app').waitFor({ state: 'visible' });
 }
 
 test('browser: 访客主题真实保存、取消、重载、离线回访与经典明暗偏好恢复', async t => {

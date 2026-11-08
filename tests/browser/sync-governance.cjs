@@ -89,7 +89,9 @@ async function connect(p, inviteCode) {
  * 而两个总开关现在在概览区（治理区之前），拿那一块会点不到开关。
  */
 async function adminPanel(p) {
-    await p.locator('#adminBtn').click();
+    if (!new URL(p.url()).pathname.startsWith('/admin')) {
+        await p.goto(new URL('/admin', p.url()).href);
+    }
     if (await p.locator('.ui-dialog input[type="password"]').count()) {
         await p.locator('.ui-dialog input[type="password"]').fill(ADMIN_PASSWORD);
         await p.locator('.ui-dialog button[type="submit"]').click();
