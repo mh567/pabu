@@ -93,12 +93,22 @@
             <div class="local-settings-body" id="localSettingsBody">
             <form id="localSettingsForm" novalidate>
                 <div class="local-settings-grid">
-                    <section class="local-settings-group local-settings-base" aria-labelledby="localBaseTitle">
-                        <h2 id="localBaseTitle">导航基础</h2>
+                    <section class="local-settings-group" aria-labelledby="localSearchTitle">
+                        <h2 id="localSearchTitle">搜索</h2>
                         <div class="local-settings-row">
                             <label for="localCurrentEngine">搜索引擎</label>
                             <select id="localCurrentEngine"></select>
                         </div>
+                        <details class="local-settings-disclosure" id="localEnginesDetails">
+                            <summary>管理搜索引擎<span class="local-settings-count" id="localEngineCount"></span></summary>
+                            <p class="local-settings-hint" id="localEngineHint">搜索地址填写关键词前缀，例如 https://example.com/?q=。</p>
+                            <div class="local-engine-head" aria-hidden="true"><span></span><span>名称</span><span>搜索地址</span><span></span></div>
+                            <div id="localEngineEditor" class="local-engine-list"></div>
+                            <button type="button" class="btn btn-sm" id="localAddEngineBtn">添加搜索引擎</button>
+                        </details>
+                    </section>
+                    <section class="local-settings-group" aria-labelledby="localAppearanceTitle">
+                        <h2 id="localAppearanceTitle">外观</h2>
                         <div class="local-settings-row">
                             <label for="localThemeStyleSelect">视觉主题</label>
                             <select id="localThemeStyleSelect"></select>
@@ -111,13 +121,6 @@
                             <label for="localIconsToggle">导航图标</label>
                             <label class="local-settings-inline"><input type="checkbox" id="localIconsToggle">显示图标</label>
                         </div>
-                        <details class="local-settings-disclosure" id="localEnginesDetails">
-                            <summary>管理搜索引擎<span class="local-settings-count" id="localEngineCount"></span></summary>
-                            <p class="local-settings-hint" id="localEngineHint">搜索地址填写关键词前缀，例如 https://example.com/?q=。</p>
-                            <div class="local-engine-head" aria-hidden="true"><span></span><span>名称</span><span>搜索地址</span><span></span></div>
-                            <div id="localEngineEditor" class="local-engine-list"></div>
-                            <button type="button" class="btn btn-sm" id="localAddEngineBtn">添加搜索引擎</button>
-                        </details>
                     </section>
                     <details class="local-settings-disclosure local-settings-span" id="localDataDetails">
                         <summary>数据管理</summary>
@@ -140,14 +143,12 @@
             <button type="button" class="btn btn-sm" id="localAdoptBtn" hidden>采用其他标签页版本</button>
         </div>
         <!-- 页面级操作栏：背板底部的纯文字一行，随编辑态换词。
-             说明 / 同步（仅普通访客）/ 外观（仅管理员）/ 编辑（编辑态换成 取消 + 保存配置）。 -->
+             说明 / 同步 / 编辑（编辑态换成 取消 + 保存配置）。 -->
         <footer class="site-footer" aria-label="页面操作">
             <nav class="site-footer-links">
                 <button type="button" class="site-footer-link" id="helpBtn" title="帮助">说明</button>
                 <span class="site-footer-sep" id="syncSep" aria-hidden="true">·</span>
                 <button type="button" class="site-footer-link" id="syncBtn" title="用口令连接云端空间">同步</button>
-                <span class="site-footer-sep" id="appearanceSep" aria-hidden="true" hidden>·</span>
-                <button type="button" class="site-footer-link" id="appearanceBtn" hidden title="外观" aria-label="外观">外观</button>
                 <span class="site-footer-sep" aria-hidden="true">·</span>
                 <button type="button" class="site-footer-link" id="layoutBtn" title="编辑首页导航" aria-pressed="false">编辑</button>
                 <button type="button" class="site-footer-link" id="localCancelBtn" hidden>取消</button>

@@ -1300,32 +1300,32 @@ function methodBodyOf(src, signature) {
     throw new Error(`${signature} 方法体未闭合`);
 }
 
-test('底栏入口顺序固定，外观和同步都是本地功能，管理入口不在一楼', () => {
+test('底栏入口顺序固定为说明、同步、编辑，管理入口不在一楼', () => {
     const footerStart = indexCode.indexOf('class="site-footer"');
     assert.ok(footerStart > 0, '首页仍有页面操作栏');
     const footer = indexCode.slice(footerStart, indexCode.indexOf('</footer>', footerStart));
     assert.ok(footer.length > 100, '取到操作栏区块');
 
-    const order = ['id="helpBtn"', 'id="appearanceBtn"', 'id="layoutBtn"']
+    const order = ['id="helpBtn"', 'id="syncBtn"', 'id="layoutBtn"']
         .map(id => footer.indexOf(id));
     assert.ok(order.every(i => i >= 0), '三个入口都在操作栏内');
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), '顺序：说明 → 外观 → 编辑');
+    assert.deepEqual(order, [...order].sort((a, b) => a - b), '顺序：说明 → 同步 → 编辑');
     assert.equal(footer.includes('id="adminBtn"'), false, '首页不再展示管理入口');
+    assert.equal(footer.includes('id="appearanceBtn"'), false, '底栏不再展示外观入口');
+    assert.equal(footer.includes('id="appearanceSep"'), false, '外观分隔符一并移除');
 
     assert.match(indexCode, /classList\.add\('admin-page'\)/, '/admin 先打后台页面标记');
     assert.match(appCode, /this\.adminPage = location\.pathname === '\/admin'/, 'app.js 识别 /admin 路径');
     assert.match(appCode, /if \(this\.adminPage\) this\.openAdminPage\(\)/, '/admin 自动进入管理后台');
     assert.match(adminCode, /\.admin-page \.app \{ display: none !important; \}/, '后台页面隐藏首页内容');
 
-    // HTML 里保留 hidden 作为首屏兜底，运行时对所有人显示本地外观入口。
-    const entry = methodBodyOf(appCode, 'syncAppearanceEntry() {');
-    assert.match(entry, /btn\.hidden = false/, '外观入口对本地用户显示');
-    assert.match(entry, /sep\.hidden = false/, '外观分隔符跟随入口显示');
-    assert.match(appCode, /this\.syncAppearanceEntry\(\);/, '启动时同步入口状态');
+    const entry = methodBodyOf(appCode, 'syncFooterEntries() {');
+    assert.match(entry, /syncSep\.hidden = false/, '同步分隔符常显');
+    assert.match(appCode, /this\.syncFooterEntries\(\);/, '启动时同步底栏状态');
 });
 
 test('同步入口始终是本地导航功能，不按管理员身份分流', () => {
-    const entry = methodBodyOf(appCode, 'syncAppearanceEntry() {');
+    const entry = methodBodyOf(appCode, 'syncFooterEntries() {');
     assert.doesNotMatch(entry, /sync\.hidden/, '同步入口不能随管理员登录隐藏');
     const open = methodBodyOf(appCode, 'async openSyncDialog() {');
     assert.doesNotMatch(open, /this\.authenticated/, '同步对话框不再按管理员身份分流');
@@ -1351,7 +1351,7 @@ test('本机主题抢在样式表之前应用，首屏不闪系统色', () => {
         'auto 不写死，交给 CSS 的媒体查询');
 });
 
-test('resolveTheme：本机覆盖优先，其次服务端站点主题，最后默认自动', () => {
+test('resolveTheme：本机选择优先，其次本机导航配置，最后默认自动', () => {
     const key = appCode.match(/const THEME_STORAGE_KEY = '([^']+)'/)[1];
     const body = methodBodyOf(appCode, 'resolveTheme() {');
     const sandbox = {
@@ -1364,51 +1364,21 @@ test('resolveTheme：本机覆盖优先，其次服务端站点主题，最后�
 
     assert.equal(resolveTheme.call(ctx), 'dark', '本机选过就用本机');
     sandbox.localStorage.getItem = () => null;
-    assert.equal(resolveTheme.call(ctx), 'light', '本机没选过才用服务端的站点主题');
+    assert.equal(resolveTheme.call(ctx), 'light', '本机没选过才用本机导航配置');
     assert.equal(resolveTheme.call({ config: {} }), 'auto', '两者都没有时默认跟随系统');
     // 本机存了不可识别的值（旧版本残留、被手改）不能变成「无主题」
     sandbox.localStorage.getItem = () => 'purple';
-    assert.equal(resolveTheme.call(ctx), 'light', '非法值忽略，回落到服务端值');
+    assert.equal(resolveTheme.call(ctx), 'light', '非法值忽略，回落到本机配置');
 });
 
-test('三态循环：自动 → 浅色 → 深色 → 自动（取模回绕）', () => {
-    const order = appCode.match(/const APPEARANCE_ORDER = \[([^\]]+)\]/);
-    assert.ok(order, '定义了循环顺序');
-    assert.deepEqual(
-        order[1].split(',').map(s => s.trim().replace(/'/g, '')),
-        ['auto', 'light', 'dark']
-    );
-    // 取模回绕只在 nextTheme 里写一次（循环与按钮文案共用它）
-    assert.match(appCode,
-        /const nextTheme = current => APPEARANCE_ORDER\[\(APPEARANCE_ORDER\.indexOf\(current\) \+ 1\) % APPEARANCE_ORDER\.length\]/,
-        'nextTheme 取模回绕——少了它深色之后就不再变（或越界成 undefined）');
-    const cycle = methodBodyOf(appCode, 'cycleTheme() {');
-    assert.match(cycle, /this\.setTheme\(nextTheme\(this\.resolveTheme\(\)\)\)/,
-        '循环走共用的那格计算，不自己再算一遍');
-});
-
-test('首页外观始终写入本机导航', () => {
-    const body = methodBodyOf(appCode, 'async setTheme(theme) {');
-    assert.match(body, /this\.config\.theme = theme/, '改本机导航配置');
-    assert.match(body, /this\.saveLocalNavigation\(\)/, '写入本机 IndexedDB');
-    assert.doesNotMatch(body, /this\.saveNavigation\(|this\.authenticated/, '不写站点导航，也不按管理员身份分流');
-    assert.doesNotMatch(body, /confirmAction/, '本机外观切换不需管理员发布确认');
-});
-
-// 普通主题的 IndexedDB 失败与刷新回访由 tests/browser/local-navigation.cjs 验证。
-
-test('外观入口的无障碍文案跟着当前态走', () => {
-    const fn = methodBodyOf(appCode, 'renderAppearanceButton(theme) {');
-    // 入口本轮改成纯文字，当前态只走 title / aria-label 两条通道——
-    // 读屏用户拿到的唯一信息就是这里写的，必须与可见语义同源。
-    assert.match(fn, /btn\.title = label/, 'title 同步更新');
-    assert.match(fn, /btn\.setAttribute\('aria-label', label\)/, 'aria-label 同步更新');
-    assert.match(fn, /APPEARANCE_TEXT\[theme\]/, '文案取自同一张文本表');
-    assert.ok(!/innerHTML/.test(fn), '纯文字入口不再往按钮里写图标');
-    const texts = appCode.match(/const APPEARANCE_TEXT = \{([^}]*)\}/);
-    assert.ok(texts, '文本表存在');
-    ['auto', 'light', 'dark'].forEach(k =>
-        assert.ok(new RegExp(`(^|\\s)${k}:`).test(texts[1]), `${k} 态有文案`));
+test('底栏不再有外观入口，主题模式只在编辑设置里改', () => {
+    assert.doesNotMatch(indexCode, /id="appearanceBtn"/, '底栏没有外观按钮');
+    assert.doesNotMatch(indexCode, /id="appearanceSep"/, '底栏没有外观分隔符');
+    assert.doesNotMatch(appCode, /appearanceBtn|cycleTheme|renderAppearanceButton|APPEARANCE_TEXT/, '外观按钮相关代码已移除');
+    assert.match(indexCode, /id="localThemeStyleSelect"/, '视觉主题在编辑设置里');
+    assert.match(indexCode, /id="localThemeSelect"/, '明暗模式在编辑设置里');
+    assert.match(appCode, /renderThemeStyleSelect\(\$\('#localThemeStyleSelect'\)/, '编辑设置渲染视觉主题');
+    assert.match(appCode, /\$\('#localThemeSelect'\)\.onchange/, '编辑设置处理明暗模式');
 });
 
 test('底栏入口的排版与窄屏触控下限', () => {

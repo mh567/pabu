@@ -205,19 +205,12 @@
     const THEME_STORAGE_KEY = 'pabu-theme';
     const LOCAL_SETTINGS_FIELDS = ['searchEngine', 'searchEngines', 'theme', 'themeStyle', 'showBookmarkIcons'];
     const APPEARANCE_ORDER = ['auto', 'light', 'dark'];
-    const APPEARANCE_TEXT = { auto: '自动（跟随系统）', light: '浅色模式', dark: '深色模式' };
-    /** 三态循环的下一格（深色之后回绕到自动）。 */
-    const nextTheme = current => APPEARANCE_ORDER[(APPEARANCE_ORDER.indexOf(current) + 1) % APPEARANCE_ORDER.length];
 
     class App {
         constructor() {
             this.adminPage = location.pathname === '/admin' || location.pathname === '/admin/';
             this.config = null;
             this.authenticated = false;
-            // 本会话的外观覆盖。正常情况下这份状态在 localStorage 里，
-            // 只有它写不进去（隐私模式 / 禁用站点数据）时才落到这个字段，
-            // 让那一次点击仍然生效，而不是看起来「按钮坏了」。
-            this.themeOverride = null;
             // 当前会话是否被信任（可信=30 天，否则 24 小时）
             this.sessionTrusted = false;
             this.dragData = null;
@@ -388,13 +381,9 @@
         }
 
         /**
-         * 同步和外观都是本地用户功能，入口始终显示。
+         * 同步入口始终显示。
          */
-        syncAppearanceEntry() {
-            const btn = $('#appearanceBtn');
-            const sep = $('#appearanceSep');
-            if (btn) btn.hidden = false;
-            if (sep) sep.hidden = false;
+        syncFooterEntries() {
             const syncSep = $('#syncSep');
             if (syncSep) syncSep.hidden = false;
             this.markSyncEntry();
@@ -413,7 +402,7 @@
                 engine.disabled = editing;
                 engine.title = editing ? '在下方设置默认搜索引擎' : '切换搜索引擎';
             }
-            this.syncAppearanceEntry();
+            this.syncFooterEntries();
             if (grid) grid.classList.toggle('is-editing', editing);
             if (grid && this._gridEditing !== editing) { this._gridEditing = editing; this.renderGrid(); }
         }
@@ -3079,11 +3068,10 @@
         }
 
         /**
-         * 当前生效的外观。优先级：本会话内存覆盖 → 本机 localStorage →
-         * 本机导航配置 → auto。管理员会话不改变首页外观。
+         * 当前生效的外观。优先级：本机 localStorage → 本机导航配置 → auto。
+         * 管理员会话不改变首页外观。
          */
         resolveTheme() {
-            if (APPEARANCE_ORDER.includes(this.themeOverride)) return this.themeOverride;
             try {
                 const stored = localStorage.getItem(THEME_STORAGE_KEY);
                 if (APPEARANCE_ORDER.includes(stored)) return stored;
@@ -3163,36 +3151,7 @@
                 // 强制指定主题
                 root.setAttribute('data-theme', theme);
             }
-            this.renderAppearanceButton(theme);
             this.renderHomeThemeSwitcher();
-        }
-
-        /** 底栏外观入口的当前态只走无障碍文案（入口本身是纯文字）。 */
-        renderAppearanceButton(theme) {
-            const btn = $('#appearanceBtn');
-            if (!btn) return;
-            const style = window.NavigationSchema.appearance(this.config).style;
-            const fixed = window.NavigationSchema.THEMES[style].mode;
-            const label = fixed ? `外观：${window.NavigationSchema.THEMES[style].name}，固定${APPEARANCE_TEXT[fixed]}，点击打开主题设置` : `外观：${APPEARANCE_TEXT[theme]}，点击切换到${APPEARANCE_TEXT[nextTheme(theme)]}`;
-            btn.title = label;
-            btn.setAttribute('aria-label', label);
-        }
-
-        async cycleTheme() {
-            if (window.NavigationSchema.THEMES[window.NavigationSchema.appearance(this.config).style].mode) {
-                this.showToast('当前视觉主题固定明暗模式，可在编辑设置中切换视觉主题');
-                return;
-            }
-            return this.setTheme(nextTheme(this.resolveTheme()));
-        }
-
-        /** 首页外观只改本机导航，管理员会话不改变这条路径。 */
-        async setTheme(theme) {
-            this.config.theme = theme;
-            this.themeOverride = null;
-            try { localStorage.removeItem(THEME_STORAGE_KEY); } catch (e) {}
-            this.applyTheme();
-            await this.saveLocalNavigation();
         }
 
         render() {
@@ -3353,8 +3312,7 @@
             });
             $('#helpBtn').onclick = () => this.showHelp();
             $('#layoutBtn').onclick = () => this.toggleEditLayout();
-            $('#appearanceBtn').onclick = () => this.cycleTheme();
-            this.syncAppearanceEntry();
+            this.syncFooterEntries();
             $('#homeThemeSwitcher').onclick = event => {
                 const button = event.target.closest('[data-home-theme]');
                 if (button && !button.disabled) this.setThemeStyle(button.dataset.homeTheme);

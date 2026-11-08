@@ -48,6 +48,7 @@ async function settings(page, { engines = false, data = false } = {}) {
     await page.locator('#localNavigationTools').waitFor({ state: 'visible' });
     await page.locator('#localNavigationTools').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {}))));
     await page.waitForTimeout(120);
+    if (await page.locator('#localEnginesDetails').getAttribute('open') !== null) await page.locator('#localEnginesDetails > summary').click();
     if (engines && await page.locator('#localEnginesDetails').getAttribute('open') === null) await page.locator('#localEnginesDetails > summary').click();
     if (data && await page.locator('#localDataDetails').getAttribute('open') === null) await page.locator('#localDataDetails > summary').click();
 }
@@ -289,6 +290,8 @@ test('browser: inline settings remain keyboard-accessible and fit narrow and lan
         await settings(page);
         assert.equal(await page.locator('.ui-dialog').count(), 0);
         await page.locator('#localCurrentEngineButton').focus(); await page.keyboard.press('Tab');
+        assert.equal(await page.locator('#localEnginesDetails > summary').evaluate(el => el === document.activeElement), true);
+        await page.keyboard.press('Tab');
         assert.equal(await page.locator('#localThemeStyleSelectButton').evaluate(el => el === document.activeElement), true);
         await page.keyboard.press('Tab');
         assert.equal(await page.locator('#localThemeSelectButton').evaluate(el => el === document.activeElement), true);
@@ -340,7 +343,7 @@ test('browser: ordinary settings appear below navigation only while editing; sav
     const { page } = await setup(t);
     assert.equal(await page.locator('#localNavigationTools').isVisible(), false);
     assert.equal(await page.locator('#localNavigationStatus').isVisible(), false);
-    assert.equal(await page.locator('#appearanceBtn').isVisible(), true);
+    assert.equal(await page.locator('#appearanceBtn').count(), 0);
     for (const id of ['localUndoBtn', 'localExportBtn', 'localImportBtn', 'localResetBtn']) assert.equal(await page.locator('#' + id).isVisible(), false);
     await settings(page);
     assert.equal(await page.locator('#localEnginesDetails').getAttribute('open'), null);
@@ -391,7 +394,7 @@ test('browser: settings drawer keeps drafts, themed selects support keyboard and
     assert.equal(await page.locator('.ui-dialog').count(), 0);
     assert.equal(await page.locator('#localNavigationTools').isVisible(), true);
     await button.click();
-    await page.locator('#localBaseTitle').click();
+    await page.locator('#localSearchTitle').click();
     await page.waitForFunction(() => !document.querySelector('.local-select-menu:popover-open'));
     await page.locator('#localDoneBtn').click();
     await page.locator('#localNavigationTools').waitFor({ state: 'hidden' });
