@@ -354,7 +354,8 @@ test('browser: 同步管理 tab —— 批量生成 20 张、状态筛选、搜�
 
     // ② 批量生成 20 张：下拉选「自定义…」→ 数字框填 20 → 生成。
     //    ⚠️ 上限 20 是界面与服务端共同的数，这里就走边界值。
-    await panel.locator('#syncInviteCount').selectOption('custom');
+    await panel.locator('#syncInviteCountButton').click();
+    await panel.locator('#syncInviteCountOption3').click();
     await panel.locator('#syncInviteCustomCount').fill('20');
     await panel.locator('#createInviteBtn').click();
     await panel.locator('.sync-code').first().waitFor({ timeout: 15000 });
@@ -374,17 +375,20 @@ test('browser: 同步管理 tab —— 批量生成 20 张、状态筛选、搜�
     assert.equal(await reopened.locator('.sync-code').count(), 0, '重开面板后结果区不再显示');
 
     // ③ 状态筛选：未使用 / 已使用 各自成页，计数行来自服务端
-    await reopened.locator('#syncInviteState').selectOption('unused');
+    await reopened.locator('#syncInviteStateButton').click();
+    await reopened.locator('#syncInviteStateOption1').click();
     // 等列表**换成**筛选后的那一份（只等「有一行」会等到上一份，断言读到旧数据）
     await admin.waitForFunction(() => /有效至/.test(document.querySelector('#syncInviteList').textContent || ''), null, { timeout: 10000 });
     const unusedRows = await reopened.locator('.sync-invite-row').count();
     assert.ok(unusedRows >= 20, `未使用筛选里至少有刚生成的 20 张（实际 ${unusedRows}）`);
     assert.match(await reopened.locator('#syncInviteCounts').innerText(), /未使用 \d+ 张/, '计数行有未使用数');
     assert.match(await reopened.locator('#syncInviteList').innerText(), /48|有效至/, '未使用的行显示有效期');
-    await reopened.locator('#syncInviteState').selectOption('used');
+    await reopened.locator('#syncInviteStateButton').click();
+    await reopened.locator('#syncInviteStateOption2').click();
     await admin.waitForFunction(() => /已使用/.test(document.querySelector('#syncInviteList').textContent || ''), null, { timeout: 10000 });
     assert.match(await reopened.locator('#syncInviteList').innerText(), /已使用/, '已使用筛选里是已用的码');
-    await reopened.locator('#syncInviteState').selectOption('all');
+    await reopened.locator('#syncInviteStateButton').click();
+    await reopened.locator('#syncInviteStateOption0').click();
 
     // ④ 搜索：命中的那一行只剩自己；搜不到时给「没有匹配」空态
     const prefix = spaceId.slice(0, 8);

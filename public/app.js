@@ -2801,17 +2801,29 @@
         }
 
         syncLocalSelects() {
-            for (const select of document.querySelectorAll('#localSettingsForm select')) {
+            this.syncThemedSelects('#localSettingsForm');
+        }
+
+        syncAdminSelects() {
+            this.syncThemedSelects('#modalBody .admin-panels', 'admin-select');
+        }
+
+        syncThemedSelects(rootSelector, extraClass = '') {
+            for (const select of document.querySelectorAll(`${rootSelector} select`)) {
                 let wrapper = select.closest('.local-select');
                 if (!wrapper) {
                     wrapper = document.createElement('div');
-                    wrapper.className = 'local-select';
+                    wrapper.className = extraClass ? `local-select ${extraClass}` : 'local-select';
                     select.before(wrapper);
                     wrapper.append(select);
-                    const label = document.querySelector(`label[for="${select.id}"]`);
-                    label.id = `${select.id}Label`;
-                    label.htmlFor = `${select.id}Button`;
-                    wrapper.insertAdjacentHTML('beforeend', `<button type="button" class="local-select-button" id="${select.id}Button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${select.id}Menu" aria-labelledby="${label.id} ${select.id}Value"><span id="${select.id}Value"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button><div class="local-select-menu" id="${select.id}Menu" popover="manual" role="listbox" aria-labelledby="${label.id}"></div>`);
+                    const label = select.closest('label') || document.querySelector(`label[for="${select.id}"]`);
+                    const caption = label?.querySelector('span') || label;
+                    if (caption) caption.id = `${select.id}Label`;
+                    if (label) label.htmlFor = `${select.id}Button`;
+                    const ariaLabel = caption ? '' : (select.getAttribute('aria-label') || '');
+                    const buttonName = caption ? `aria-labelledby="${caption.id} ${select.id}Value"` : (ariaLabel ? `aria-label="${this.esc(ariaLabel)}"` : '');
+                    const menuName = caption ? `aria-labelledby="${caption.id}"` : (ariaLabel ? `aria-label="${this.esc(ariaLabel)}"` : '');
+                    wrapper.insertAdjacentHTML('beforeend', `<button type="button" class="local-select-button" id="${select.id}Button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${select.id}Menu" ${buttonName}><span id="${select.id}Value"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button><div class="local-select-menu" id="${select.id}Menu" popover="manual" role="listbox" ${menuName}></div>`);
                     select.hidden = true;
                     const button = wrapper.querySelector('button');
                     const menu = wrapper.querySelector('[role="listbox"]');
@@ -2846,6 +2858,8 @@
                     const choose = index => {
                         if (!select.options[index] || select.options[index].disabled) return;
                         select.selectedIndex = index;
+                        button.querySelector('span').textContent = select.selectedOptions[0]?.textContent || '请选择';
+                        [...menu.children].forEach((option, i) => option.setAttribute('aria-selected', String(i === index)));
                         select.dispatchEvent(new Event('change', { bubbles: true }));
                         menu.hidePopover();
                         button.focus({ preventScroll: true });
@@ -2878,6 +2892,8 @@
                             if (index >= 0) highlight(index);
                         }
                     };
+                } else if (extraClass && !wrapper.classList.contains(extraClass)) {
+                    wrapper.classList.add(extraClass);
                 }
                 const button = wrapper.querySelector('button');
                 button.disabled = select.disabled;
@@ -4526,7 +4542,7 @@
 
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和外观。首页始终保存当前用户自己的导航，管理员登录不会切换首页。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>主题</strong><p>使用首页外观入口切换明暗模式与视觉主题。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };
@@ -4816,7 +4832,7 @@
                     <div class="section"><div class="section-title">用户与数据概览</div><div class="sync-overview" id="syncOverview"><div class="sync-stat"><b>—</b><span>用户数</span></div><div class="sync-stat"><b>—</b><span>存储占用</span></div><div class="sync-stat"><b>—</b><span>活跃设备</span></div><div class="sync-stat"><b>—</b><span>服务状态</span></div></div>
                     <div class="sync-policy-row"><label class="sync-policy-item"><span>暂停新建</span><div class="toggle-switch"><input type="checkbox" id="syncCreatingPaused"><span class="toggle-slider"></span></div></label><label class="sync-policy-item"><span>总暂停</span><div class="toggle-switch"><input type="checkbox" id="syncTotalPaused"><span class="toggle-slider"></span></div></label></div><p id="syncPolicyHint" class="fav-hint"></p></div>
                     <div class="section" id="syncInvitesSection"><div class="section-title">邀请码</div><p class="fav-hint">邀请码一次性使用，有效期 48 小时。</p><div class="sync-toolbar"><input id="syncInviteNote" maxlength="100" placeholder="备注" aria-label="邀请码备注"><button type="button" class="btn btn-sm" id="createSingleInviteBtn">单个生成</button><select id="syncInviteCount" aria-label="生成数量"><option value="1">1 张</option><option value="5">5 张</option><option value="10" selected>10 张</option><option value="custom">自定义</option></select><input type="number" id="syncInviteCustomCount" min="1" max="20" step="1" value="20" hidden aria-label="自定义张数"><button type="button" class="btn btn-sm btn-primary" id="createInviteBtn">批量生成</button></div><p class="sync-error" id="syncInviteError" hidden></p><div id="syncInviteBatch" hidden></div><div class="sync-toolbar"><select id="syncInviteState" aria-label="邀请码状态"><option value="all">全部</option><option value="unused">未使用</option><option value="used">已使用</option><option value="expired">已过期</option><option value="revoked">已撤销</option></select><button type="button" class="btn btn-sm" id="revokeSelectedInvites" disabled>撤销选中</button><span id="syncInviteCounts" class="sync-toolbar-note"></span></div><div class="sync-invite-list" id="syncInviteList"></div><div class="sync-pager" id="syncInvitePager" hidden></div></div>
-                    <div class="section" id="syncSpacesSection"><div class="section-title">同步空间（用户）</div><p class="fav-hint">用户以同步空间表示。管理端只展示元数据，可以编辑备注、停用、删除和重置设备，不读取空间正文或设备凭据。</p><div class="sync-toolbar"><input type="search" id="syncSpaceSearch" placeholder="搜索备注" aria-label="搜索备注"><select id="syncSpaceState"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已停用</option><option value="deleted">已删除</option></select><select id="syncSpaceSort"><option value="updated">最近更新</option><option value="bytes">体积</option><option value="devices">设备数</option></select></div><div class="sync-toolbar"><button type="button" class="btn btn-sm" id="disableSelectedSpaces" disabled>批量停用</button><span id="syncSpacesSelection" class="sync-toolbar-note"></span><span id="syncSpacesSummary" class="sync-toolbar-note"></span></div><div class="sync-space-host" id="syncSpacesList"></div><div class="sync-pager" id="syncSpacesPager" hidden></div></div>
+                    <div class="section" id="syncSpacesSection"><div class="section-title">同步空间（用户）</div><p class="fav-hint">用户以同步空间表示。管理端只展示元数据，可以编辑备注、停用、删除和重置设备，不读取空间正文或设备凭据。</p><div class="sync-toolbar"><input type="search" id="syncSpaceSearch" placeholder="搜索备注" aria-label="搜索备注"><select id="syncSpaceState" aria-label="空间状态"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已停用</option><option value="deleted">已删除</option></select><select id="syncSpaceSort" aria-label="排序方式"><option value="updated">最近更新</option><option value="bytes">体积</option><option value="devices">设备数</option></select></div><div class="sync-toolbar"><button type="button" class="btn btn-sm" id="disableSelectedSpaces" disabled>批量停用</button><span id="syncSpacesSelection" class="sync-toolbar-note"></span><span id="syncSpacesSummary" class="sync-toolbar-note"></span></div><div class="sync-space-host" id="syncSpacesList"></div><div class="sync-pager" id="syncSpacesPager" hidden></div></div>
                 </section>
                 <section class="admin-panel" role="tabpanel" id="adminPanelAccount" aria-labelledby="adminTabAccount" hidden><div class="section"><div class="section-title">登录安全</div><div class="setting-row"><label><span>信任此设备</span><div class="toggle-switch"><input type="checkbox" id="trustDeviceToggle"><span class="toggle-slider"></span></div></label></div><p class="fav-hint" id="trustDeviceHint"></p></div><div class="section"><button class="btn btn-danger" id="logoutBtn" style="width:100%">退出登录</button></div></section></div>`;
             this.bindAdminTabs();
@@ -4853,6 +4869,7 @@
             $('#syncSpaceState').onchange = event => { this.syncSpacesFilter.state = event.target.value; this.syncSpacesFilter.offset = 0; this.syncSpacesSelected.clear(); this.renderSyncSpaces(); };
             $('#syncSpaceSort').onchange = event => { this.syncSpacesFilter.sort = event.target.value; this.syncSpacesFilter.offset = 0; this.renderSyncSpaces(); };
             this.paintSyncPolicy(); this.paintSyncSpacesBulk(); this.paintSyncInviteBatch();
+            this.syncAdminSelects();
             $('#trustDeviceToggle').checked = this.sessionTrusted;
             $('#trustDeviceToggle').onchange = async event => { const toggle = event.target, wanted = toggle.checked; toggle.disabled = true; const ok = await this.setDeviceTrust(wanted); toggle.disabled = false; if (ok !== wanted) { toggle.checked = !wanted; this.sessionTrusted = !wanted; } this.updateTrustDeviceHint(); };
             this.updateTrustDeviceHint();
@@ -4922,6 +4939,7 @@
                 this.renderSiteHeader();
                 this.markConfigDirty();
             };
+            this.syncAdminSelects();
         }
 
         renderEnginesEditor() {

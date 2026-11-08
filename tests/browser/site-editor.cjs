@@ -81,7 +81,17 @@ test('browser: Site tab embeds a one-to-one canvas and no longer links to the ho
 
     await page.locator('#siteThemeSwitcher [data-site-theme="classic"]').click();
     await page.waitForFunction(() => document.documentElement.dataset.themeStyle === 'classic');
-    assert.equal(await page.locator('#themeStyleSelect').inputValue(), 'classic', '画布主题与设置同步');
+    assert.equal(await page.locator('#themeStyleSelect').evaluate(el => el.value), 'classic', '画布主题与设置同步');
+
+    await page.locator('#themeStyleSelectButton').click();
+    await page.waitForSelector('#themeStyleSelectMenu', { state: 'visible' });
+    await page.locator('#themeStyleSelectMenu').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {}))));
+    const themeButtonBox = await page.locator('#themeStyleSelectButton').boundingBox();
+    const themeMenuBox = await page.locator('#themeStyleSelectMenu').boundingBox();
+    assert.ok(Math.abs(themeMenuBox.width - Math.max(themeButtonBox.width, 120)) <= 1,
+        `后台主题下拉宽度应取按钮宽度与 120px 的较大者，实际 ${themeMenuBox.width}`);
+    assert.equal(await page.locator('#themeStyleSelectMenu').evaluate(el => getComputedStyle(el).borderRadius), '12px', '后台下拉使用统一下拉材质');
+    await page.keyboard.press('Escape');
 
     assert.equal(await page.locator('#editHomepageBtn').count(), 0, '不再跳到首页编辑');
     assert.equal(await page.locator('#adminTabSite').innerText(), '站点导航');
