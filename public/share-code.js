@@ -9,6 +9,9 @@
 
     const CODE_LENGTH = 26;
     const SHARE_ID_PATTERN = /^[a-z2-7]{26}$/;
+    // 二期实时传文件的会合码：5 位数字，首位不为 0。
+    // 与文本分组密钥、文件一期单词码都不重叠。
+    const RTC_CODE_PATTERN = /^[1-9]\d{4}$/;
 
     function normalizeCode(value) {
         return String(value == null ? '' : value).toLowerCase().replace(/[^a-z2-7]/g, '');
@@ -62,6 +65,10 @@
         return typeof value === 'string' && SHARE_ID_PATTERN.test(value);
     }
 
+    function isRtcCode(value) {
+        return typeof value === 'string' && RTC_CODE_PATTERN.test(value);
+    }
+
     function generateCode() {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         return groupCode(base32Encode(bytes));
@@ -93,12 +100,14 @@
         ALPHABET,
         CODE_LENGTH,
         SHARE_ID_PATTERN,
+        RTC_CODE_PATTERN,
         normalizeCode,
         base32Encode,
         base32Decode,
         groupCode,
         isCode,
         isShareId,
+        isRtcCode,
         generateCode,
         deriveId,
         deriveProof,

@@ -115,7 +115,9 @@ tar -czf pabu-backup-$(date +%Y%m%d).tar.gz \
   config.json .admin-password.json .env server-config.json pabu.db
 ```
 
-恢复后执行 `./pabu.sh restart`。文本与文件分享都是临时数据，元数据保存在运行进程内存中，文件密文分片保存在 `transfers/`，服务重启后会一起清除。文件分享默认单文件 64 MiB、总量 256 MiB，可用 `.env` 中的 `PABU_TRANSFER_MAX_FILE`、`PABU_TRANSFER_MAX_TOTAL`、`PABU_TRANSFER_MAX_ENTRIES` 和 `PABU_TRANSFER_CHUNK_SIZE` 调整。
+恢复后执行 `./pabu.sh restart`。文本与文件中转都是临时数据，元数据保存在运行进程内存中，文件密文分片保存在 `transfers/`，服务重启后会一起清除。文件中转默认单文件 64 MiB、总量 256 MiB，可用 `.env` 中的 `PABU_TRANSFER_MAX_FILE`、`PABU_TRANSFER_MAX_TOTAL`、`PABU_TRANSFER_MAX_ENTRIES` 和 `PABU_TRANSFER_CHUNK_SIZE` 调整。
+
+实时传文件使用 WebRTC 直连，服务端只保存短期配对和信令，不落文件。公网部署必须使用 HTTPS，否则浏览器不会提供 WebCrypto 与 WebRTC。默认使用公共 STUN，ICE 会自动收集 IPv4 与 IPv6 候选；需要跨对称 NAT 时可自建 TURN，在 `PABU_RTC_ICE_SERVERS` 里填写地址，并用 `PABU_RTC_TURN_SECRET` 配置 coturn 的短期凭据密钥。静态用户名密码不会下发给客户端。直连失败时页面会回退到上面的服务器中转。实时单文件上限由 `PABU_RTC_MAX_FILE` 调整，默认 256 MiB；接收端在内存中重组分片，调大前先确认设备内存。
 
 ## 反向代理与 HTTPS
 

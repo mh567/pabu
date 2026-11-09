@@ -3337,7 +3337,9 @@
                 this.pickupDismissedCode = null;
                 input.value = (pickup.kind === 'link' || pickup.kind === 'word-link')
                     ? pickup.href
-                    : pickup.kind === 'word' ? pickup.code : ShareCode.groupCode(pickup.code);
+                    : (pickup.kind === 'word' || pickup.kind === 'rtc')
+                        ? pickup.code
+                        : ShareCode.groupCode(pickup.code);
                 this.handleSearchInput(input);
             });
             const settleDrag = () => {
@@ -4327,11 +4329,14 @@
             return char === '》';
         }
 
-        // 取件识别只认文本 v2 的分组密钥与完整链接。单词码只保留文件分享的
-        // 取件路径，命中后由 /p/<code> 重定向到 /f/<code>；旧文本单词码不再兼容。
+        // 取件识别接受三种形状：文本 v2 的分组密钥/完整链接、文件一期的单词码，
+        // 以及二期的 5 位实时配对码。单词码命中后由 /p/<code> 重定向到 /f/<code>；
+        // 5 位码不跳转，直接在当前页打开接收对话框。
         parsePickup(text) {
             const raw = String(text ?? '').trim();
             if (!raw) return null;
+
+            if (ShareCode.isRtcCode(raw)) return { kind: 'rtc', key: 'rtc:' + raw, code: raw };
 
             const link = /^https?:\/\/[^\s/]+\/p\/([a-z2-7]{26})(?:[/?#]([^\s]*))?$/i.exec(raw);
             if (link) {
@@ -4375,7 +4380,7 @@
             searchBtn.textContent = fileActive ? '选文件' : pickupActive ? '取件' : '搜索';
             searchBtn.title = fileActive
                 ? '回车选择要分享的文件'
-                : pickupActive ? '回车取回共享文本（Esc 改为搜索）' : '搜索';
+                : pickupActive ? '回车取回共享内容（Esc 改为搜索）' : '搜索';
         }
 
         // 接收 input 元素；也兼容直接传入事件对象
@@ -4471,6 +4476,14 @@
         async openPickup(pickup) {
             const dropdown = $('#engineDropdown');
             if (dropdown) dropdown.hidden = true;
+            if (pickup.kind === 'rtc') {
+                if (!window.RtcTransfer || !window.RtcTransfer.isSupported()) {
+                    this.showToast('当前浏览器不支持实时传输，请通过 HTTPS 访问', 'error');
+                    return;
+                }
+                await window.RtcTransfer.receive(pickup.code);
+                return;
+            }
             if (pickup.kind === 'link' || pickup.kind === 'word-link') {
                 try {
                     const url = new URL(pickup.href);
@@ -4656,11 +4669,46 @@
             return (index === 0 ? String(bytes) : value.toFixed(value >= 10 ? 0 : 1)) + ' ' + units[index];
         }
 
+        // 默认走二期实时直连：5 位码配对，文件不落在服务器上。
+        // 浏览器不支持 WebRTC、或直连失败时，回退到一期的服务器中转。
         async shareFile(file) {
             if (!file) return;
             if (!file.size) {
                 this.showToast('不能分享空文件', 'error');
                 return;
+            }
+            const rtc = window.RtcTransfer;
+            if (rtc && rtc.isSupported()) {
+                try {
+                    const started = await rtc.share(file, {
+                        onFallback: (pendingFile, notifyRelay) => this.shareFileRelay(pendingFile, notifyRelay)
+                    });
+                    if (started && started.ok) return;
+                    if (started && started.reason === 'busy') {
+                        this.showToast('已有实时传输正在进行', 'error');
+                        return;
+                    }
+                    if (started && (started.reason === 'too_large' || started.reason === 'error')) return;
+                } catch (error) {
+                    this.showToast('实时传输启动失败：' + error.message, 'error');
+                    return;
+                }
+            }
+            await this.shareFileRelay(file);
+        }
+
+        async shareFileRelay(file, notifyRelay = null) {
+            // 从实时直连回退过来时，任何没走到上传的出口都要告诉对端已取消，
+            // 否则接收方会一直停在「等待取件码」。
+            const abortRelay = () => {
+                if (typeof notifyRelay === 'function') {
+                    try { notifyRelay(null); } catch {}
+                }
+            };
+            if (!file) return abortRelay();
+            if (!file.size) {
+                this.showToast('不能分享空文件', 'error');
+                return abortRelay();
             }
 
             let limits;
@@ -4668,11 +4716,11 @@
                 limits = await API.get('/api/file/limits');
             } catch (error) {
                 this.showToast('读取文件分享配置失败：' + error.message, 'error');
-                return;
+                return abortRelay();
             }
             if (file.size > limits.maxFileBytes) {
                 this.showToast(`文件过大，单文件上限 ${this.formatBytes(limits.maxFileBytes)}`, 'error');
-                return;
+                return abortRelay();
             }
 
             const TTL_LABELS = { 5: '5 分钟', 30: '30 分钟', 1440: '1 天', 10080: '7 天' };
@@ -4699,11 +4747,11 @@
                 reveal: { label: '4 位数字 PIN 码', maxlength: 4 },
                 validate: (values, choices) => choices.pin && !/^\d{4}$/.test(values[0] || '') ? 'PIN 码必须是 4 位数字' : ''
             });
-            if (!result) return;
+            if (!result) return abortRelay();
 
             const pin = result.choices.pin ? result.values[0] : null;
             const ttlMinutes = TTL_LABELS[result.choices.ttl] ? Number(result.choices.ttl) : 5;
-            await this.uploadFile(file, { pin, ttlMinutes, limits });
+            await this.uploadFile(file, { pin, ttlMinutes, limits, notifyRelay });
         }
 
         showTransferProgress(fileName, onCancel) {
@@ -4739,7 +4787,7 @@
             };
         }
 
-        async uploadFile(file, { pin, ttlMinutes, limits }) {
+        async uploadFile(file, { pin, ttlMinutes, limits, notifyRelay = null }) {
             const controller = new AbortController();
             const progress = this.showTransferProgress(file.name, () => controller.abort());
             this.transferActive = true;
@@ -4795,6 +4843,11 @@
 
                 const finished = await API.post(`/api/file/${encodeURIComponent(code)}/finish`, {});
                 progress.close();
+                // 直连失败回退到中转时，把新的单词取件码送回原会话，
+                // 接收方随后自动跳到 /f/<code>。
+                if (typeof notifyRelay === 'function') {
+                    try { notifyRelay(code); } catch {}
+                }
                 this.showPasteResult(code, !!pin, finished.expiresAt, {
                     kind: 'file',
                     name: file.name,
@@ -4809,6 +4862,9 @@
                         headers: { 'X-Pabu-Request': '1' }
                     }).catch(() => {});
                 }
+                if (typeof notifyRelay === 'function') {
+                    try { notifyRelay(null); } catch {}
+                }
                 if (error.name !== 'AbortError') {
                     this.showToast('上传失败：' + (error.message || '未知错误'), 'error');
                 }
@@ -4819,7 +4875,7 @@
 
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>文件分享</strong><p>搜索框输入 》 或点击搜索框下方的「输入》分享文件」选择文件，浏览器加密后上传，可设 PIN 和有效期。下载一次后自动从服务器删除。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>文件分享</strong><p>搜索框输入 》 或点击「输入》分享文件」选择文件，生成 5 位取件码。接收方在搜索框输入取件码后，文件通过浏览器直连传输，不经过服务器保存。直连失败时可改用服务器中转，文件加密后暂存，下载一次后删除。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };

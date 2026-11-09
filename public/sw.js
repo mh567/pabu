@@ -1,8 +1,8 @@
-const CACHE = 'pabu-v22';
+const CACHE = 'pabu-v23';
 const ASSETS = [
     '/', '/index.html', '/styles.css', '/admin.css', '/themes.css',
     '/fonts/inter-tight-latin-variable.woff2', '/app.js', '/share-code.js',
-    '/navigation-schema.js', '/local-navigation.js', '/lib/qrcode.js',
+    '/navigation-schema.js', '/local-navigation.js', '/rtc-transfer.js', '/lib/qrcode.js',
     '/favicon.svg', '/icon.svg', '/manifest.json'
 ];
 const ASSET_PATHS = new Set(ASSETS);

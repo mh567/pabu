@@ -294,7 +294,8 @@ const { createNavigation } = require('./lib/navigation');
 const { createSyncStore } = require('./lib/sync-store');
 const { createSqliteBackend } = require('./lib/session-sqlite');
 const { createTransferStore } = require('./lib/transfer-store');
-let navigation, syncStore, transferStore, db, sessionStore;
+const { createRtcSessionStore } = require('./lib/rtc-session');
+let navigation, syncStore, transferStore, rtcSessions, db, sessionStore;
 
 // 文件分享的默认值按 1 核 1G 的小机器定：单文件 64 MiB、总量 256 MiB。
 // 分片 4 MiB，对应 16 个分片以内的常见文件，服务端只做顺序落盘。
@@ -304,6 +305,76 @@ const TRANSFER_CHUNK_BYTES = TRANSFER_CHUNK_SIZE + TRANSFER_ENVELOPE;
 const TRANSFER_MAX_FILE_BYTES = positiveIntEnv('PABU_TRANSFER_MAX_FILE', 64 * 1024 * 1024);
 const TRANSFER_MAX_TOTAL_BYTES = positiveIntEnv('PABU_TRANSFER_MAX_TOTAL', 256 * 1024 * 1024);
 const TRANSFER_MAX_ENTRIES = positiveIntEnv('PABU_TRANSFER_MAX_ENTRIES', 50);
+
+// 二期实时传文件：服务端只做 5 位码配对与 WebRTC 信令，不接收文件内容。
+// 等待配对的房间 10 分钟过期，配对后的活动房间按 60 分钟滑动续期。
+// 接收端目前在内存里重组分片，默认 256 MiB 是桌面与移动端较稳妥的上限。
+// 需要更大文件时可通过 PABU_RTC_MAX_FILE 调整，但要先确认接收设备内存。
+const RTC_MAX_FILE_BYTES = positiveIntEnv('PABU_RTC_MAX_FILE', 256 * 1024 * 1024);
+const RTC_POLL_TIMEOUT_MS = positiveIntEnv('PABU_RTC_POLL_TIMEOUT', 20 * 1000);
+const RTC_WAITING_TTL_MS = positiveIntEnv('PABU_RTC_WAITING_TTL', 10 * 60 * 1000);
+const RTC_ACTIVE_TTL_MS = positiveIntEnv('PABU_RTC_ACTIVE_TTL', 60 * 60 * 1000);
+// TURN 不返回长期凭据：公开的 /api/rtc/config 会把它们交给任何访客。
+// 配置 PABU_RTC_TURN_SECRET 后，按 coturn 的 REST 认证格式生成短期凭据。
+const RTC_TURN_SECRET = process.env.PABU_RTC_TURN_SECRET || '';
+const RTC_TURN_TTL_SECONDS = positiveIntEnv('PABU_RTC_TURN_TTL', 600);
+const RTC_DEFAULT_ICE_SERVERS = [
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.l.google.com:19302' }
+];
+let rtcTurnSecretWarned = false;
+
+// PABU_RTC_ICE_SERVERS 接受 JSON 数组或字符串数组，只读取 urls。
+// 静态 username/credential 会被忽略：TURN 凭据必须走 PABU_RTC_TURN_SECRET。
+// 默认只用公共 STUN，跨网失败时由前端回退到一期服务器中转。
+function resolveRtcIceServers() {
+    const raw = process.env.PABU_RTC_ICE_SERVERS;
+    if (!raw) return RTC_DEFAULT_ICE_SERVERS;
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        console.warn('[RTC] PABU_RTC_ICE_SERVERS 不是有效 JSON，使用默认 STUN');
+        return RTC_DEFAULT_ICE_SERVERS;
+    }
+    if (!Array.isArray(parsed)) {
+        console.warn('[RTC] PABU_RTC_ICE_SERVERS 必须是数组，使用默认 STUN');
+        return RTC_DEFAULT_ICE_SERVERS;
+    }
+    const servers = parsed
+        .map(item => (typeof item === 'string' ? item : item && typeof item.urls === 'string' ? item.urls : ''))
+        .map(url => url.trim().slice(0, 500))
+        .filter(Boolean)
+        .map(url => ({ urls: url }));
+    return servers.length ? servers : RTC_DEFAULT_ICE_SERVERS;
+}
+
+function isTurnServer(urls) {
+    return /^turns?:/i.test(urls);
+}
+
+// 每次请求现算 TURN 凭据，凭据只在一小段时间内有效。
+// 没有 PABU_RTC_TURN_SECRET 时跳过 TURN 地址，避免把不可用的服务器发给客户端。
+function buildRtcIceServers(now = Date.now()) {
+    const servers = [];
+    for (const server of resolveRtcIceServers()) {
+        if (!isTurnServer(server.urls)) {
+            servers.push({ urls: server.urls });
+            continue;
+        }
+        if (!RTC_TURN_SECRET) {
+            if (!rtcTurnSecretWarned) {
+                rtcTurnSecretWarned = true;
+                console.warn('[RTC] 配置了 TURN 地址但没有 PABU_RTC_TURN_SECRET，已跳过 TURN');
+            }
+            continue;
+        }
+        const username = `${Math.floor(now / 1000) + RTC_TURN_TTL_SECONDS}:pabu`;
+        const credential = crypto.createHmac('sha1', RTC_TURN_SECRET).update(username).digest('base64');
+        servers.push({ urls: server.urls, username, credential });
+    }
+    return servers;
+}
 
 function positiveIntEnv(name, fallback) {
     const raw = process.env[name];
@@ -687,6 +758,14 @@ async function init() {
         }
     });
     await transferStore.ready();
+    rtcSessions = createRtcSessionStore({
+        limits: {
+            maxFileBytes: RTC_MAX_FILE_BYTES,
+            pollTimeoutMs: RTC_POLL_TIMEOUT_MS,
+            waitingTtlMs: RTC_WAITING_TTL_MS,
+            activeTtlMs: RTC_ACTIVE_TTL_MS
+        }
+    });
 }
 
 app.get('/api/config', publicReadLimit, (req, res) => {
@@ -1411,6 +1490,102 @@ app.delete('/api/file/:code', asyncRoute(async (req, res) => {
     res.json({ success: true });
 }));
 
+// ========== 二期：5 位码实时配对与 WebRTC 信令 ==========
+//
+// 服务端不接触文件内容，只保存会话元数据、SDP/ICE 信令和短期事件队列。
+// 长轮询而不是 WebSocket：不引入新依赖，单机小内存部署也够用。
+// 文件传输本身走 WebRTC DataChannel，直连失败时由前端回退到一期服务器中转。
+
+const rtcRateLimitMap = new Map();
+const RTC_CREATE_WINDOW = 600000;
+const RTC_CREATE_LIMIT = 10;       // 每 IP：10 分钟创建 10 个会话
+const RTC_JOIN_WINDOW = 600000;
+const RTC_JOIN_LIMIT = 30;         // 每 IP：10 分钟尝试 30 次取件码
+const RTC_SEND_WINDOW = 600000;
+const RTC_SEND_LIMIT = 1500;       // 每 IP（验令牌后）：10 分钟 1500 条信令
+const RTC_POLL_WINDOW = 600000;
+const RTC_POLL_LIMIT = 900;        // 每 IP（验令牌后）：10 分钟 900 次轮询
+const RTC_LEAVE_WINDOW = 600000;
+const RTC_LEAVE_LIMIT = 60;        // 每 IP：10 分钟 60 次取消
+
+function rtcLimited(req, res, key, windowMs, limit) {
+    const { allowed, resetAt } = consumeRateLimit(rtcRateLimitMap, key, Date.now(), windowMs, limit);
+    if (allowed) return false;
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))));
+    res.status(429).json({ error: '操作过于频繁，请稍后再试' });
+    return true;
+}
+
+function rtcToken(req) {
+    const value = req.headers['x-pabu-rtc-token'];
+    return typeof value === 'string' ? value : '';
+}
+
+function rtcReady(res) {
+    if (rtcSessions) return true;
+    res.status(503).json({ error: '服务尚未就绪，请稍后再试' });
+    return false;
+}
+
+app.get('/api/rtc/config', publicReadLimit, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+        maxFileBytes: RTC_MAX_FILE_BYTES,
+        iceServers: buildRtcIceServers()
+    });
+});
+
+app.post('/api/rtc/room', (req, res) => {
+    if (!rtcReady(res)) return;
+    if (rtcLimited(req, res, `${resolveClientIp(req)}:rtc:create`, RTC_CREATE_WINDOW, RTC_CREATE_LIMIT)) return;
+    const result = rtcSessions.create(req.body || {});
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+});
+
+app.post('/api/rtc/join', (req, res) => {
+    if (!rtcReady(res)) return;
+    if (rtcLimited(req, res, `${resolveClientIp(req)}:rtc:join`, RTC_JOIN_WINDOW, RTC_JOIN_LIMIT)) return;
+    const result = rtcSessions.join((req.body || {}).code);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+});
+
+app.post('/api/rtc/send', (req, res) => {
+    if (!rtcReady(res)) return;
+    const body = req.body || {};
+    // 先验令牌再扣限流：否则匿名请求可以按请求体里的码
+    // 把任意会话的发送预算打满，而且限流键会随攻击者输入无界增长。
+    rtcSessions.authenticate(body.code, rtcToken(req));
+    if (rtcLimited(req, res, `${resolveClientIp(req)}:rtc:send`, RTC_SEND_WINDOW, RTC_SEND_LIMIT)) return;
+    const result = rtcSessions.send(body.code, rtcToken(req), body.message);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+});
+
+app.post('/api/rtc/poll', asyncRoute(async (req, res) => {
+    if (!rtcReady(res)) return;
+    const body = req.body || {};
+    rtcSessions.authenticate(body.code, rtcToken(req));
+    if (rtcLimited(req, res, `${resolveClientIp(req)}:rtc:poll`, RTC_POLL_WINDOW, RTC_POLL_LIMIT)) return;
+    const after = Number.isInteger(body.after) ? body.after : Number(body.after) || 0;
+    const wait = rtcSessions.poll(body.code, rtcToken(req), after);
+    // 客户端关闭页面或取消时释放挂起的轮询，避免等满超时。
+    res.once('close', wait.cancel);
+    const result = await wait.promise;
+    if (res.writableEnded || res.destroyed || !res.writable) return;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+}));
+
+app.delete('/api/rtc/room/:code', (req, res) => {
+    if (!rtcReady(res)) return;
+    if (rtcLimited(req, res, `${resolveClientIp(req)}:rtc:leave`, RTC_LEAVE_WINDOW, RTC_LEAVE_LIMIT)) return;
+    const result = rtcSessions.leave(req.params.code, rtcToken(req));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+});
+
 // 文件取件页。页面本身是静态的，码的有效性由 /api/file/:code/meta 判定。
 app.get('/f/:code', (req, res) => {
     if (!isPasteCodeFormat(req.params.code)) return res.redirect('/');
@@ -1890,11 +2065,13 @@ setInterval(() => {
         [loginFailMap, LOGIN_FAIL_WINDOW], [syncReadLimitMap, SYNC_READ_WINDOW],
         [syncUploadLimitMap, SYNC_UPLOAD_WINDOW], [syncConnectLimitMap, SYNC_CONNECT_WINDOW],
         [syncIssueLimitMap, SYNC_ISSUE_WINDOW],
-        [transferRateLimitMap, TRANSFER_RATE_WINDOW]
+        [transferRateLimitMap, TRANSFER_RATE_WINDOW],
+        [rtcRateLimitMap, RTC_CREATE_WINDOW]
     ]) sweepRateLimitStore(store, now, windowMs);
     sessionStore?.sweep(now);
     syncStore?.sweep();
     transferStore?.sweep().catch(error => {
         console.error('[Transfer] 清理失败:', error.message);
     });
+    rtcSessions?.sweep();
 }, 60000).unref();

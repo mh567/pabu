@@ -736,6 +736,173 @@ body {
     .transfer-progress-bar span { transition: none; }
 }
 
+/* ===== 二期实时传文件：5 位配对 + WebRTC 直连 =====
+   浮层独立于 .ui-dialog：中转回退时会先移除它，再让一期的分享对话框接管。 */
+.rtc-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1250;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(20, 16, 12, .47);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.rtc-dialog {
+    width: min(100%, 420px);
+    max-height: min(90dvh, 620px);
+    overflow-y: auto;
+    padding: 24px 22px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    text-align: center;
+}
+
+.rtc-dialog h3 {
+    margin: 0 0 14px;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.rtc-file {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-hover);
+}
+
+.rtc-file strong {
+    overflow-wrap: anywhere;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.rtc-file span {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.rtc-label {
+    margin: 0 0 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+    letter-spacing: .12em;
+}
+
+.rtc-code {
+    margin: 0 0 12px;
+    color: var(--accent);
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    font-size: clamp(32px, 12vw, 44px);
+    font-weight: 600;
+    letter-spacing: .16em;
+    text-indent: .16em;
+}
+
+.rtc-status {
+    min-height: 18px;
+    margin: 10px 0 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+
+.rtc-hint {
+    margin: 0 0 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.rtc-warning {
+    margin: 8px 0 14px;
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.rtc-verify {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 4px 0 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-hover);
+}
+
+.rtc-verify span {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.rtc-verify strong {
+    color: var(--text);
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    font-size: 22px;
+    letter-spacing: .2em;
+}
+
+.rtc-progress {
+    height: 7px;
+    margin: 10px 0 2px;
+    border-radius: 999px;
+    background: var(--bg-hover);
+    overflow: hidden;
+}
+
+.rtc-progress span {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: var(--accent);
+    transition: width 160ms ease;
+}
+
+.rtc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.rtc-actions .btn {
+    min-height: 38px;
+    padding: 7px 15px;
+}
+
+@media (max-width: 480px) {
+    .rtc-overlay { padding: 14px; }
+    .rtc-dialog { padding: 20px 16px; }
+}
+
+/* 触控目标按指针类型判断：平板、折叠屏内屏不会被 480px 断点漏掉。 */
+@media (pointer: coarse) {
+    .rtc-actions .btn { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rtc-progress span { transition: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    .rtc-overlay { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
 .paste-qr {
     display: flex;
     justify-content: center;

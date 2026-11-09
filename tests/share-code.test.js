@@ -28,6 +28,16 @@ test('取件码是 26 位、按 5-5-5-5-6 分组', () => {
     assert.equal(ShareCode.isCode(code), true);
 });
 
+test('实时取件码只接受 5 位且首位不为 0', () => {
+    assert.equal(ShareCode.isRtcCode('12345'), true);
+    assert.equal(ShareCode.isRtcCode(12345), false, '数字类型不当作码');
+    assert.equal(ShareCode.isRtcCode('01234'), false);
+    assert.equal(ShareCode.isRtcCode('1234'), false);
+    assert.equal(ShareCode.isRtcCode('123456'), false);
+    assert.equal(ShareCode.isRtcCode(' 12345 '), false);
+    assert.equal(ShareCode.isRtcCode(''), false);
+});
+
 test('取件码大小写和分隔符不影响解析', () => {
     const code = ShareCode.generateCode();
     const messy = ` ${code.toUpperCase().replace(/-/g, ' ')} `;

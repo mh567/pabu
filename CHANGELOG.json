@@ -1,6 +1,24 @@
 {
   "versions": [
     {
+      "version": "0.8.0",
+      "releaseDate": "2026-11-09",
+      "summary": "新增 5 位码实时传文件，文件走 WebRTC 直连，直连失败可回退服务器中转。",
+      "highlights": [
+        "发送方生成 5 位数字取件码，接收方在超级搜索框输入后通过 WebRTC DataChannel 直连传输，文件不落在服务器上。",
+        "两端显示 4 位 DTLS 指纹确认码，接收方在浏览器内保存文件；直连失败可由发送方改用一期服务器中转。",
+        "实时会话单接收方、短 TTL、创建与加入限流，发送与轮询验令牌后按 IP 限流；TURN 只下发短期凭据。"
+      ],
+      "changes": [
+        "新增 lib/rtc-session.js 与 /api/rtc 系列信令接口，服务端只保存会话元数据、SDP/ICE 和短期事件队列。",
+        "新增 public/rtc-transfer.js：16 KiB 分片、bufferedAmount 背压、进度与取消、确认码、关闭拦截与 Wake Lock。",
+        "首页文件分享默认走实时直连，5 位码在当前页打开接收对话框；直连失败回退一期中转并自动送达单词取件码。",
+        "实时单文件默认 256 MiB，可用 PABU_RTC_MAX_FILE 调整；STUN/TURN 由 PABU_RTC_ICE_SERVERS 配置，TURN 凭据由 PABU_RTC_TURN_SECRET 动态生成。",
+        "修复数据通道 meta 消息字段冲突，补充真实双浏览器 WebRTC 闭环、会话存储与 HTTP 信令测试。",
+        "Service Worker 缓存更新至 pabu-v23。"
+      ]
+    },
+    {
       "version": "0.7.4",
       "releaseDate": "2026-11-09",
       "summary": "修正同步对话框的关闭方式与手动同步反馈。",

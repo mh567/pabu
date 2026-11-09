@@ -57,6 +57,16 @@
 - 版本推进到 `0.7.3`，主题入口视觉与菜单宽度修正完成。
 - 同步对话框关闭改为右上角一个叉，主操作行移除「关闭 / 取消」；「立即同步」点击后进入「同步中…」忙碌态并显示转圈，同步结束统一重绘，暂停/停用态的重试按钮不再卡在禁用。
 - 版本推进到 `0.7.4`，同步对话框关闭方式与手动同步反馈修正完成。
+- 二期实时传文件落地：发送方选择文件后生成 5 位数字取件码，同一时间只允许一个接收方，接收方在超级搜索框输入后通过 WebRTC DataChannel 直连传输，文件不经过服务器保存。服务端只保存会话元数据与 SDP/ICE 信令，采用长轮询而不是 WebSocket，未新增依赖。
+- 新增 `lib/rtc-session.js` 与 `/api/rtc/config`、`/api/rtc/room`、`/api/rtc/join`、`/api/rtc/send`、`/api/rtc/poll`、`DELETE /api/rtc/room/:code`。按角色隔离令牌；创建与加入按 IP 限流，发送与轮询先验会话令牌再按 IP 限流，匿名请求不能消耗他人额度；每个参与者的待取队列同时受 400 条与 256 KiB 限制。等待配对 10 分钟过期，配对后按 60 分钟活动时间滑动续期。接收方离开时清空上一轮信令，新接收方从空队列开始。
+- 新增 `public/rtc-transfer.js`：5 位码浮层、WebRTC 建连、16 KiB 分片、`bufferedAmount` 背压、进度与取消、4 位 DTLS 指纹确认码、`beforeunload` 拦截与 Wake Lock。首页文件入口默认走实时直连，浏览器不支持或直连失败时回退一期服务器中转。实时单文件默认上限 256 MiB，可用 `PABU_RTC_MAX_FILE` 调整。
+- 回退中转时，发送方完成加密上传后把新的单词取件码通过原信令会话送回，接收方自动跳到 `/f/<code>`；发送方取消或上传失败也会通知接收方结束等待。
+- 首页取件识别新增 5 位码分支，判断逻辑放进 `ShareCode.isRtcCode`，5 位码在当前页打开接收对话框，不跳转。文本分享 v2、文件一期单词码和 5 位实时码三种形状互不冲突。输入 5 位数字会被当作取件码，需要搜索时按 Esc 取消识别。
+- TURN 不再下发静态用户名密码：`/api/rtc/config` 只返回 STUN，配置 `PABU_RTC_TURN_SECRET` 后按 coturn REST 格式现算短期凭据，有效期由 `PABU_RTC_TURN_TTL` 控制。ICE 同时收集 IPv4 与 IPv6 候选。
+- `.env.example`、README、DEPLOYMENT、PRODUCT、DESIGN、架构说明补充实时传文件、STUN/TURN、限流与回退边界。
+- 代码审查后修正：发送与轮询先验会话令牌再按 IP 限流；待取队列增加 256 KiB 字节上限；接收方离开时清空旧信令、旧队列和挂起轮询；TURN 改为按密钥现算短期凭据，不再下发静态用户名密码；触控目标改按 `pointer: coarse`；5 位码判断收敛到 `ShareCode.isRtcCode`。
+- 修复数据通道 meta 消息的字段冲突：原先同一对象里写了两个 `type`，MIME 覆盖了消息类型，接收端把文件头当未知消息丢掉；现在消息类型用 `type`，MIME 用 `mime`。该问题由真实双浏览器闭环发现。
+- 版本推进到 `0.8.0`，二期 5 位码实时传文件发布。
 
 ## 验证
 
@@ -84,8 +94,11 @@
 - 本轮主题入口验证：`node --test tests/*.test.js` 共 365 项通过；`themes.cjs` 2 项、`site-editor.cjs` 2 项与 `local-navigation.cjs` 13 项浏览器用例通过。
 - 本轮主题入口视觉修正验证：`node --test tests/*.test.js` 共 365 项通过；`themes.cjs`、`site-editor.cjs` 与 `local-navigation.cjs` 共 17 项浏览器用例通过；截图实测经典主题入口 88×32、菜单 88px 且右缘对齐。
 - 本轮同步对话框验证：`node --test tests/*.test.js` 共 366 项通过；`sync-space.cjs` 通过；`sync-governance.cjs` 中同步相关 5 项通过，管理面板登录弹窗相关的 2 项为既有的环境性失败，已用原始代码复现。
+- 本轮二期实时传文件验证：`node --test tests/*.test.js` 共 392 项通过。新增 12 项会话存储用例、5 项 HTTP 信令用例、8 项前端源码守卫和 1 项共享码用例，覆盖 5 位码创建与占用、offer/answer/候选往返、越权与超大信令拒绝、接收方离开与重新加入、离开时清空旧信令、挂起轮询释放、relay 控制链路、队列字节上限、取消后的最后一条信令、过期回收、码冲突、房间上限、CSRF、信令鉴权、加入限流、TURN 短期凭据与无密钥时跳过 TURN、5 位码类型判断、meta 消息字段、实时传输源码与 Service Worker 缓存。`node --check` 检查 `server.js`、`lib/rtc-session.js`、`public/rtc-transfer.js`、`public/app.js`、`public/share-code.js` 和 `public/sw.js` 通过。
+- 真实浏览器闭环通过：Playwright 驱动系统 Chrome，两个独立浏览器上下文完成 5 位码取件、WebRTC 直连、两端 4 位确认码一致、下载内容一致、传输结束后再次加入返回 410。该闭环同时发现并修复了 meta 消息 `type` 被 MIME 覆盖的问题。
+- 真实公网、对称 NAT、IPv6 与 TURN 仍未在外部网络验证；默认只有公共 STUN，直连失败时回退一期服务器中转。
 - Pabu 项目目录内没有安装依赖；管理脚本验证在临时目录执行了 `npm ci`，测试目录已清理。Pabu 首次运行前需执行 `npm ci` 或使用 `pabu.sh install`。
 
 ## 边界
 
-导航同步内容由服务端保存并可读取，不提供端到端加密；临时文本分享使用浏览器加密。少量未引用的旧功能 CSS 规则仍保留，暂未影响界面与接口。
+导航同步内容由服务端保存并可读取，不提供端到端加密；临时文本分享使用浏览器加密。实时传文件依赖 WebRTC 与 HTTPS，默认只配公共 STUN，未配置 `PABU_RTC_TURN_SECRET` 时不启用 TURN，跨对称 NAT 或严格防火墙可能直连失败，需要回退服务器中转。信令服务器能看到会话元数据、SDP 与 ICE 候选，看不到文件内容；4 位确认码用于发现信令被替换，需要双方人工核对。5 位码空间约 9 万种，安全性依赖单接收方、短 TTL、加入限流与发送方确认。少量未引用的旧功能 CSS 规则仍保留，暂未影响界面与接口。
