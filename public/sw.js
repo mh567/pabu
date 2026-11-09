@@ -1,7 +1,7 @@
-const CACHE = 'pabu-v16';
+const CACHE = 'pabu-v18';
 const ASSETS = [
     '/', '/index.html', '/styles.css', '/admin.css', '/themes.css',
-    '/fonts/inter-tight-latin-variable.woff2', '/app.js',
+    '/fonts/inter-tight-latin-variable.woff2', '/app.js', '/share-code.js',
     '/navigation-schema.js', '/local-navigation.js', '/lib/qrcode.js',
     '/favicon.svg', '/icon.svg', '/manifest.json'
 ];

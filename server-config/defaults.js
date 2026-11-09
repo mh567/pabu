@@ -34,6 +34,8 @@ module.exports = {
     },
     paths: {
         database: 'pabu.db',
+        // 文件分享只存密文分片，元数据在内存里；进程重启后该目录由服务清空。
+        transfers: 'transfers',
 
         logs: 'logs'
     }

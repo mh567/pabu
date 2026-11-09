@@ -4,6 +4,7 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 const http = require('http');
+const crypto = require('node:crypto');
 const bcrypt = require('bcrypt');
 
 // ⚠️ 必须写成 './server-config/index.js'（显式带 index.js），不能写 './server-config'。
@@ -178,12 +179,15 @@ function generatePasteCode() {
         'time', 'day', 'night', 'home', 'door', 'key', 'box', 'gift', 'card', 'note',
         'phone', 'photo', 'video', 'song', 'dance', 'smile', 'heart', 'magic', 'power', 'peace'
     ];
-    const word = words[Math.floor(Math.random() * words.length)];
-    const num = Math.floor(Math.random() * 900) + 100; // 100-999
+    // 取件码是访问凭据，必须用密码学随机源。Math.random 的序列可预测，
+    // 即使码空间不大，也不该让攻击者通过观察若干码去推算后续码。
+    const word = words[crypto.randomInt(words.length)];
+    const num = crypto.randomInt(100, 1000); // 100-999
     const code = `${word}-${num}`;
 
-    // 确保唯一性
-    if (pasteStorage.has(code)) {
+    // 确保唯一性。文本分享与文件分享共用一个取件码命名空间，
+    // 这样首页输入裸码时不会同时命中两种分享。
+    if (pasteStorage.has(code) || (transferStore && transferStore.has(code))) {
         return generatePasteCode();
     }
     return code;
@@ -192,6 +196,12 @@ function generatePasteCode() {
 function isPasteCodeFormat(str) {
     // 匹配 单词-3位数字 格式 (7-10位)
     return /^[a-z]{2,6}-\d{3}$/.test(str);
+}
+
+// 文本分享 v2：26 位 base32 的散列 ID。旧版单词码不再兼容，
+// 单词码只保留给文件分享的取件路径。
+function isShareIdFormat(str) {
+    return /^[a-z2-7]{26}$/.test(str);
 }
 
 // 清理过期分享
@@ -207,7 +217,6 @@ function cleanExpiredPastes() {
 // 分享限流：取码与创建是两个独立入口，用不同 key 分别计数，
 // 避免互相消耗配额
 const pasteRateLimitMap = new Map();
-const PASTE_CODE_LIMIT = 10;     // 每小时取码次数
 const PASTE_CREATE_LIMIT = 20;   // 每小时创建次数
 const PASTE_GET_LIMIT = 30;      // 每小时读取次数
 const PASTE_RATE_WINDOW = 3600000; // 1小时
@@ -284,7 +293,24 @@ const { openDatabase } = require('./lib/db');
 const { createNavigation } = require('./lib/navigation');
 const { createSyncStore } = require('./lib/sync-store');
 const { createSqliteBackend } = require('./lib/session-sqlite');
-let navigation, syncStore, db, sessionStore;
+const { createTransferStore } = require('./lib/transfer-store');
+let navigation, syncStore, transferStore, db, sessionStore;
+
+// 文件分享的默认值按 1 核 1G 的小机器定：单文件 64 MiB、总量 256 MiB。
+// 分片 4 MiB，对应 16 个分片以内的常见文件，服务端只做顺序落盘。
+const TRANSFER_ENVELOPE = 28;
+const TRANSFER_CHUNK_SIZE = positiveIntEnv('PABU_TRANSFER_CHUNK_SIZE', 4 * 1024 * 1024);
+const TRANSFER_CHUNK_BYTES = TRANSFER_CHUNK_SIZE + TRANSFER_ENVELOPE;
+const TRANSFER_MAX_FILE_BYTES = positiveIntEnv('PABU_TRANSFER_MAX_FILE', 64 * 1024 * 1024);
+const TRANSFER_MAX_TOTAL_BYTES = positiveIntEnv('PABU_TRANSFER_MAX_TOTAL', 256 * 1024 * 1024);
+const TRANSFER_MAX_ENTRIES = positiveIntEnv('PABU_TRANSFER_MAX_ENTRIES', 50);
+
+function positiveIntEnv(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const value = Number(raw);
+    return Number.isInteger(value) && value > 0 ? value : fallback;
+}
 let passwordChanging = false;
 let authGeneration = 0;
 let activeAdminWrites = 0;
@@ -652,6 +678,15 @@ async function init() {
         geoDatabase: config.security.geoDatabase,
         backend: createSqliteBackend(db)
     });
+    transferStore = createTransferStore({
+        directory: config.paths.transfers,
+        limits: {
+            maxFileBytes: TRANSFER_MAX_FILE_BYTES,
+            maxTotalBytes: TRANSFER_MAX_TOTAL_BYTES,
+            maxEntries: TRANSFER_MAX_ENTRIES
+        }
+    });
+    await transferStore.ready();
 }
 
 app.get('/api/config', publicReadLimit, (req, res) => {
@@ -1113,35 +1148,25 @@ function getPasswordHashSync() {
     }
 }
 
-app.post('/api/p/code', (req, res) => {
-    const ip = resolveClientIp(req);
-
-    if (!consumeRateLimit(pasteRateLimitMap, `${ip}:paste:code`, Date.now(), PASTE_RATE_WINDOW, PASTE_CODE_LIMIT).allowed) {
-        return res.status(429).json({ error: '创建过于频繁，请稍后再试' });
-    }
-
-    const code = generatePasteCode();
-    res.json({ code });
-});
-
 // 创建分享
 app.post('/api/p', (req, res) => {
     const ip = resolveClientIp(req);
 
-    // 创建入口必须独立限流：否则可绕开 /api/p/code 直接自造分享码创建
+    // 创建入口必须独立限流：否则可绕过创建接口直接自造 ID 创建
     if (!consumeRateLimit(pasteRateLimitMap, `${ip}:paste:create`, Date.now(), PASTE_RATE_WINDOW, PASTE_CREATE_LIMIT).allowed) {
         return res.status(429).json({ error: '创建过于频繁，请稍后再试' });
     }
 
-    const { code, content, pin, ttl } = req.body;
+    const { code, content, pin, ttl, proof } = req.body;
 
     // 验证分享码格式
-    if (!code || !isPasteCodeFormat(code)) {
+    if (!code || !isShareIdFormat(code)) {
         return res.status(400).json({ error: '无效的分享码' });
     }
 
-    // 检查分享码是否已被使用
-    if (pasteStorage.has(code)) {
+    // 检查分享码是否已被使用。文本与文件共用码空间，否则同一码会在
+    // /p 与 /f 两条页面之间产生归属歧义。
+    if (pasteStorage.has(code) || transferStore.has(code)) {
         return res.status(400).json({ error: '分享码已被使用' });
     }
 
@@ -1157,6 +1182,12 @@ app.post('/api/p', (req, res) => {
         return res.status(400).json({ error: 'PIN 必须是4位数字' });
     }
 
+    // v2 取件证明：只有持有密钥的客户端才算得出来。它把「知道路径 ID」
+    // 和「能取走内容」分开，避免 ID 出现在日志里就被人删除记录。
+    if (proof != null && (typeof proof !== 'string' || !/^[a-z2-7]{26}$/.test(proof))) {
+        return res.status(400).json({ error: '取件证明无效' });
+    }
+
     // 有效期只接受白名单档位；缺失或非法值按 5 分钟处理
     const ttlMinutes = resolvePasteTtlMinutes(ttl);
     const expiresAt = Date.now() + PASTE_TTL_OPTIONS[ttlMinutes];
@@ -1170,6 +1201,7 @@ app.post('/api/p', (req, res) => {
     pasteStorage.set(code, {
         content,
         pin: pin || null,
+        proof: proof || null,
         expiresAt,
         attempts: 0
     });
@@ -1193,9 +1225,9 @@ app.post('/api/p/:code', (req, res) => {
     }
 
     const { code } = req.params;
-    const { pin } = req.body;
+    const { pin, proof } = req.body;
 
-    if (!isPasteCodeFormat(code)) {
+    if (!isShareIdFormat(code)) {
         return res.status(400).json({ error: '无效的分享码格式' });
     }
 
@@ -1208,6 +1240,12 @@ app.post('/api/p/:code', (req, res) => {
     if (Date.now() > paste.expiresAt) {
         pasteStorage.delete(code);
         return res.status(404).json({ error: '分享已过期' });
+    }
+
+    // 取件证明先于 PIN：没有密钥的人连错误 PIN 都不该能试，
+    // 否则拿到路径 ID 就能把别人的分享试到销毁。
+    if (paste.proof && proof !== paste.proof) {
+        return res.status(403).json({ error: '取件证明不匹配', code: 'proof_required' });
     }
 
     // PIN 验证
@@ -1238,11 +1276,157 @@ app.post('/api/p/:code', (req, res) => {
     });
 });
 
+// ========== 服务器中转文件分享 ==========
+//
+// 一期只做服务器中转：浏览器分片加密后上传，服务端存密文，取件一次性。
+// 元数据留在内存，密文分片落在 config.paths.transfers，进程重启后清空。
+// 这条边界与现有文本分享一致，也避免小机器上长期占用磁盘。
+
+const transferRateLimitMap = new Map();
+const TRANSFER_CODE_LIMIT = 10;      // 每小时每 IP 申请取件码
+const TRANSFER_INIT_LIMIT = 20;      // 每小时每 IP 创建上传
+const TRANSFER_CHUNK_LIMIT = 600;    // 每小时每个分享码接收分片
+const TRANSFER_ACCESS_LIMIT = 60;    // 每小时每 IP 尝试取件
+const TRANSFER_DELETE_LIMIT = 20;    // 每小时每 IP 取消上传
+const TRANSFER_RATE_WINDOW = 3600000;
+
+const asyncRoute = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+
+function transferLimited(req, res, key, limit) {
+    const { allowed, resetAt } = consumeRateLimit(
+        transferRateLimitMap, key, Date.now(), TRANSFER_RATE_WINDOW, limit);
+    if (allowed) return false;
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))));
+    res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+    return true;
+}
+
+function contentDisposition(name) {
+    const fallback = String(name || 'download')
+        .replace(/[^\x20-\x7e]/g, '_')
+        .replace(/["\\]/g, '_')
+        .slice(0, 120) || 'download';
+    return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name || 'download')}`;
+}
+
+app.get('/api/file/limits', publicReadLimit, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+        maxFileBytes: TRANSFER_MAX_FILE_BYTES,
+        maxTotalBytes: TRANSFER_MAX_TOTAL_BYTES,
+        chunkSize: TRANSFER_CHUNK_SIZE,
+        chunkBytes: TRANSFER_CHUNK_BYTES
+    });
+});
+
+app.post('/api/file/code', (req, res) => {
+    if (transferLimited(req, res, `${resolveClientIp(req)}:file:code`, TRANSFER_CODE_LIMIT)) return;
+    res.json({ code: generatePasteCode() });
+});
+
+app.post('/api/file/init', asyncRoute(async (req, res) => {
+    if (transferLimited(req, res, `${resolveClientIp(req)}:file:init`, TRANSFER_INIT_LIMIT)) return;
+    const body = req.body || {};
+    if (!isPasteCodeFormat(body.code)) return res.status(400).json({ error: '无效的分享码' });
+    if (pasteStorage.has(body.code)) return res.status(409).json({ error: '分享码已被使用' });
+    const ttlMinutes = resolvePasteTtlMinutes(body.ttl);
+    const result = await transferStore.init({
+        code: body.code,
+        size: body.size,
+        storedSize: body.storedSize,
+        chunkSize: body.chunkSize,
+        chunkBytes: body.chunkBytes,
+        name: body.name,
+        type: body.type,
+        pin: body.pin,
+        downloads: body.downloads,
+        ttlMs: PASTE_TTL_OPTIONS[ttlMinutes]
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+}));
+
+const transferChunkParser = express.raw({
+    type: 'application/octet-stream',
+    limit: TRANSFER_CHUNK_BYTES + 1024
+});
+
+app.put('/api/file/:code/chunk/:index', transferChunkParser, asyncRoute(async (req, res) => {
+    const { code, index } = req.params;
+    if (transferLimited(req, res, `file:chunk:${code}`, TRANSFER_CHUNK_LIMIT)) return;
+    if (!Buffer.isBuffer(req.body)) return res.status(415).json({ error: '分片必须是二进制' });
+    const result = await transferStore.writeChunk(code, Number(index), req.body);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+}));
+
+app.post('/api/file/:code/finish', asyncRoute(async (req, res) => {
+    const result = await transferStore.finish(req.params.code);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+}));
+
+app.get('/api/file/:code/meta', publicReadLimit, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(transferStore.meta(req.params.code));
+});
+
+app.post('/api/file/:code/access', asyncRoute(async (req, res) => {
+    const { code } = req.params;
+    if (transferLimited(req, res, `${resolveClientIp(req)}:file:access`, TRANSFER_ACCESS_LIMIT)) return;
+    const result = await transferStore.access(code, (req.body || {}).pin);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+}));
+
+app.get('/api/file/:code/download', asyncRoute(async (req, res) => {
+    // 取件凭据只走请求头，不进 URL：URL 会落到访问日志与浏览器历史里。
+    const info = transferStore.consumeToken(req.headers['x-pabu-grant'], req.params.code);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', String(info.storedSize));
+    res.setHeader('Content-Disposition', contentDisposition(info.name));
+
+    const stream = fsSync.createReadStream(info.filePath);
+    stream.on('error', error => {
+        console.error('[Transfer] 读取分片失败:', error.message);
+        if (!res.headersSent) res.status(500).json({ error: '服务器内部错误' });
+        else res.destroy();
+    });
+    res.once('finish', () => {
+        transferStore.completeDownload(info.code).catch(error => {
+            console.error('[Transfer] 完成取件失败:', error.message);
+        });
+    });
+    res.once('close', () => {
+        if (!res.writableFinished) stream.destroy();
+    });
+    stream.pipe(res);
+}));
+
+app.delete('/api/file/:code', asyncRoute(async (req, res) => {
+    if (transferLimited(req, res, `${resolveClientIp(req)}:file:delete`, TRANSFER_DELETE_LIMIT)) return;
+    if (!isPasteCodeFormat(req.params.code)) return res.status(400).json({ error: '无效的分享码' });
+    await transferStore.remove(req.params.code);
+    res.json({ success: true });
+}));
+
+// 文件取件页。页面本身是静态的，码的有效性由 /api/file/:code/meta 判定。
+app.get('/f/:code', (req, res) => {
+    if (!isPasteCodeFormat(req.params.code)) return res.redirect('/');
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.join(config.rootDir, 'public', 'file.html'));
+});
+
 // 分享页面路由
 app.get('/p/:code', (req, res) => {
     const { code } = req.params;
 
-    if (!isPasteCodeFormat(code)) {
+    // 文件分享仍用单词码，先重定向到取件页；旧文本单词码不再渲染。
+    if (transferStore.has(code)) {
+        return res.redirect('/f/' + code);
+    }
+    if (!isShareIdFormat(code)) {
         return res.redirect('/');
     }
 
@@ -1259,6 +1443,7 @@ app.get('/p/:code', (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>分享内容</title>
     <script src="/navigation-schema.js"></script>
+    <script src="/share-code.js"></script>
     <script>
         try {
             const saved = JSON.parse(sessionStorage.getItem('pabu-appearance'));
@@ -1423,23 +1608,16 @@ app.get('/p/:code', (req, res) => {
     </div>
     <script src="/lib/highlight.min.js"></script>
     <script>
-        // 使用分享码进行端到端解密
+        // 使用 URL fragment 中的密钥做端到端解密
         const Crypto = {
-            async deriveKey(code) {
-                const enc = new TextEncoder();
-                const keyMaterial = await crypto.subtle.importKey(
-                    'raw', enc.encode(code + '-pabu-e2e'), 'PBKDF2', false, ['deriveKey']
-                );
-                return crypto.subtle.deriveKey(
-                    { name: 'PBKDF2', salt: enc.encode('pabu-paste-v2'), iterations: 100000, hash: 'SHA-256' },
-                    keyMaterial,
-                    { name: 'AES-GCM', length: 256 },
-                    false,
-                    ['decrypt']
-                );
+            async shareKey() {
+                const raw = ShareCode.normalizeCode(location.hash.slice(1));
+                if (raw.length !== ShareCode.CODE_LENGTH) return null;
+                return crypto.subtle.importKey('raw', ShareCode.keyBytes(raw), 'AES-GCM', false, ['decrypt']);
             },
-            async decrypt(encryptedBase64, code) {
-                const key = await this.deriveKey(code);
+            async decrypt(encryptedBase64) {
+                const key = await this.shareKey();
+                if (!key) throw new Error('缺少解密密钥');
                 const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
                 const iv = combined.slice(0, 12);
                 const data = combined.slice(12);
@@ -1449,6 +1627,25 @@ app.get('/p/:code', (req, res) => {
         };
 
         const code = '${code}';
+        // v2 的 ID 单独出现时没有密钥，不能去取件，否则服务端会按阅后即焚删掉记录。
+        const shareKeyRaw = ShareCode.normalizeCode(location.hash.slice(1));
+        const needsShareKey = ShareCode.isShareId(code)
+            && shareKeyRaw.length !== ShareCode.CODE_LENGTH;
+        let shareProof = null;
+
+        async function getShareProof() {
+            if (!shareProof) shareProof = await ShareCode.deriveProof(shareKeyRaw);
+            return shareProof;
+        }
+
+        // 先确认 fragment 里的密钥确实散列成路径 ID，再决定是否发取件请求。
+        // 否则一个损坏的链接会先触发阅后即焚，内容就再也拿不回来了。
+        async function verifyShareKey() {
+            if (!ShareCode.isShareId(code)) return true;
+            if (shareKeyRaw.length !== ShareCode.CODE_LENGTH) return false;
+            return (await ShareCode.deriveId(shareKeyRaw)) === code;
+        }
+
         let decryptedText = '';
 
         // 语言识别：先用高精度签名判定明确语言，再用 hljs 自动识别兜底。
@@ -1513,28 +1710,55 @@ app.get('/p/:code', (req, res) => {
         }
 
         ${exists && !requirePin ? `
-        fetch('/api/p/' + code, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-            .then(r => r.json())
-            .then(data => {
+        (async () => {
+            if (!await verifyShareKey()) {
+                document.getElementById('content').textContent = needsShareKey
+                    ? '请使用完整分享链接取回内容'
+                    : '分享链接不完整或已损坏';
+                return;
+            }
+            try {
+                const body = ShareCode.isShareId(code) ? { proof: await getShareProof() } : {};
+                const response = await fetch('/api/p/' + code, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
                 if (data.content) {
                     showContent(data.content);
                 } else {
-                    document.getElementById('content').textContent = data.error || '获取失败';
+                    document.getElementById('content').textContent = data.code === 'proof_required'
+                        ? '分享链接不完整或已损坏'
+                        : (data.error || '获取失败');
                 }
-            })
-            .catch(() => { document.getElementById('content').textContent = '获取失败'; });
+            } catch {
+                document.getElementById('content').textContent = '获取失败';
+            }
+        })();
         ` : ''}
         ${exists && requirePin ? `
         document.getElementById('pinForm').onsubmit = async (e) => {
             e.preventDefault();
             const pin = document.getElementById('pinInput').value;
             if (!/^\\d{4}$/.test(pin)) return;
+            if (!await verifyShareKey()) {
+                const errorBox = document.getElementById('errorMsg');
+                const msg = document.createElement('div');
+                msg.className = 'msg error-msg';
+                msg.textContent = needsShareKey ? '请使用完整分享链接取回内容' : '分享链接不完整或已损坏';
+                errorBox.replaceChildren(msg);
+                return;
+            }
 
             try {
+                const body = ShareCode.isShareId(code)
+                    ? { pin, proof: await getShareProof() }
+                    : { pin };
                 const res = await fetch('/api/p/' + code, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pin })
+                    body: JSON.stringify(body)
                 });
                 const data = await res.json();
 
@@ -1568,6 +1792,19 @@ app.get('/p/:code', (req, res) => {
 </html>`;
 
     res.type('html').send(html);
+});
+
+// 路由层统一错误出口。分片解析（413）、存储校验（400/404/409）与磁盘错误都经过这里，
+// 统一返回 JSON，且不回显堆栈。
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const status = err.status || err.statusCode || 500;
+    if (status >= 500) {
+        console.error(`[Server] ${req.method} ${req.path} 处理失败:`, err.message);
+    }
+    const payload = { error: status >= 500 ? '服务器内部错误' : (err.message || '请求无效') };
+    if (err.code && typeof err.code === 'string') payload.code = err.code;
+    res.status(status).json(payload);
 });
 
 function createServer() {
@@ -1652,8 +1889,12 @@ setInterval(() => {
         [publicReadLimitMap, PUBLIC_READ_WINDOW], [globalLoginMap, 60000],
         [loginFailMap, LOGIN_FAIL_WINDOW], [syncReadLimitMap, SYNC_READ_WINDOW],
         [syncUploadLimitMap, SYNC_UPLOAD_WINDOW], [syncConnectLimitMap, SYNC_CONNECT_WINDOW],
-        [syncIssueLimitMap, SYNC_ISSUE_WINDOW]
+        [syncIssueLimitMap, SYNC_ISSUE_WINDOW],
+        [transferRateLimitMap, TRANSFER_RATE_WINDOW]
     ]) sweepRateLimitStore(store, now, windowMs);
     sessionStore?.sweep(now);
     syncStore?.sweep();
+    transferStore?.sweep().catch(error => {
+        console.error('[Transfer] 清理失败:', error.message);
+    });
 }, 60000).unref();

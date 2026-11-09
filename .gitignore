@@ -24,6 +24,9 @@ pabu.db
 pabu.db-wal
 pabu.db-shm
 
+# Temporary encrypted transfer chunks
+transfers/
+
 # AI assistant files
 CLAUDE.md
 .claude/

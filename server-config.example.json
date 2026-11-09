@@ -14,6 +14,7 @@
   },
   "paths": {
     "database": "pabu.db",
+    "transfers": "transfers",
     "logs": "logs"
   }
 }

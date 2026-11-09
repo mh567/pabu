@@ -133,7 +133,8 @@ test('themes: site styles persist through real HTTP writes and restart', async t
     const persisted = await (await app.request('/api/admin/navigation', { cookie })).json();
     assert.equal(persisted.config.themeStyle, 'prism');
     assert.equal(persisted.config.theme, 'light');
-    const share = await (await app.request('/p/tiger-482')).text();
+    // 文本分享只接受 26 位散列 ID 页面；这里不创建内容，只校验页面主题落盘。
+    const share = await (await app.request('/p/abcdefghijklmnopqrstuvwxyz')).text();
     assert.match(share, /data-theme-style="prism" data-theme="dark"/);
     assert.match(share, /href="\/themes.css"/);
 });

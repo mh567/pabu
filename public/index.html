@@ -78,9 +78,10 @@
                 <div class="engine-dropdown" id="engineDropdown" role="listbox" aria-label="搜索引擎" hidden></div>
             </div>
         </header>
-        <div class="search-caption" aria-hidden="true">
-            <span><kbd>&gt;</kbd> 分享文本</span>
-            <span><kbd>取件码</kbd> 取回分享</span>
+        <div class="search-caption" aria-label="分享与取件入口">
+            <button type="button" class="caption-action" id="captionShareText"><kbd>输入&gt;</kbd>分享文本</button>
+            <button type="button" class="caption-action" id="captionShareFile"><kbd>输入》</kbd>分享文件</button>
+            <button type="button" class="caption-action" id="captionPickup"><kbd>输入取件码</kbd> 取回文本文件</button>
         </div>
         <main class="grid" id="grid"></main>
         <section id="localNavigationTools" class="local-navigation-tools" aria-label="首页配置" data-open="true" hidden>
@@ -147,6 +148,8 @@
         <footer class="site-footer" aria-label="页面操作">
             <nav class="site-footer-links">
                 <button type="button" class="site-footer-link" id="helpBtn" title="帮助">说明</button>
+                <span class="site-footer-sep" aria-hidden="true">·</span>
+                <button type="button" class="site-footer-link" id="transferFileBtn" title="加密分享文件">传文件</button>
                 <span class="site-footer-sep" id="syncSep" aria-hidden="true">·</span>
                 <button type="button" class="site-footer-link" id="syncBtn" title="用口令连接云端空间">同步</button>
                 <span class="site-footer-sep" aria-hidden="true">·</span>
@@ -172,8 +175,10 @@
         </div>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <input type="file" id="transferFileInput" hidden>
     <!-- 分享二维码按需加载，见 app.js loadScript。 -->
     <script src="navigation-schema.js"></script>
+    <script src="share-code.js"></script>
     <script src="local-navigation.js"></script>
     <script src="app.js"></script>
 </body>

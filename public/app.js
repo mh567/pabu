@@ -9,54 +9,24 @@
 
     // ========== 端到端加密工具 ==========
     const Crypto = {
-        // 从分享码派生 AES 密钥（用户无感知）
-        async deriveKey(code) {
-            const enc = new TextEncoder();
-            const keyMaterial = await crypto.subtle.importKey(
-                'raw', enc.encode(code + '-pabu-e2e'), 'PBKDF2', false, ['deriveKey']
-            );
-            return crypto.subtle.deriveKey(
-                { name: 'PBKDF2', salt: enc.encode('pabu-paste-v2'), iterations: 100000, hash: 'SHA-256' },
-                keyMaterial,
-                { name: 'AES-GCM', length: 256 },
-                false,
-                ['encrypt', 'decrypt']
+        // 文本分享 v2：取件码本身是 128 位随机密钥，服务端只拿到它的散列 ID。
+        async importShareKey(code) {
+            return crypto.subtle.importKey(
+                'raw', ShareCode.keyBytes(code), 'AES-GCM', false, ['encrypt', 'decrypt']
             );
         },
 
-        // 加密文本
-        async encrypt(text, code) {
-            const key = await this.deriveKey(code);
+        async encryptWithCode(text, code) {
+            const key = await this.importShareKey(code);
             const enc = new TextEncoder();
             const iv = crypto.getRandomValues(new Uint8Array(12));
-            const encrypted = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv },
-                key,
-                enc.encode(text)
-            );
-            // 合并 iv + 密文，转 base64
+            const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(text));
             const combined = new Uint8Array(iv.length + encrypted.byteLength);
             combined.set(iv);
             combined.set(new Uint8Array(encrypted), iv.length);
-            return btoa(String.fromCharCode(...combined));
-        },
-
-        // 解密文本
-        async decrypt(encryptedBase64, code) {
-            try {
-                const key = await this.deriveKey(code);
-                const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-                const iv = combined.slice(0, 12);
-                const data = combined.slice(12);
-                const decrypted = await crypto.subtle.decrypt(
-                    { name: 'AES-GCM', iv },
-                    key,
-                    data
-                );
-                return new TextDecoder().decode(decrypted);
-            } catch {
-                throw new Error('解密失败');
-            }
+            let binary = '';
+            for (const byte of combined) binary += String.fromCharCode(byte);
+            return btoa(binary);
         }
     };
 
@@ -219,6 +189,8 @@
             this.dragData = null;
             this.pasteMode = false;
             this.pasteUserResized = false;
+            // 文件上传在途：关闭或刷新会让已上传分片作废，beforeunload 需要拦一下。
+            this.transferActive = false;
             // 首页取件码识别：记住被 Esc 取消过的**归一化后的码**（不是原始输入）。
             // 记码而不是记一个布尔，换一个码就自动重新生效，不需要在登录、
             // 模式切换这些事件上「重新武装」，也就不会留下永久失效的一次性标志。
@@ -2952,7 +2924,7 @@
                 this.localChannel.onmessage = () => this.refreshLocalNavigation();
             }
             window.addEventListener('beforeunload', event => {
-                if (this.localPending || this.localError || this.localSettingsChanged() || $('.ui-dialog-overlay input, .ui-dialog-overlay textarea')) { event.preventDefault(); event.returnValue = ''; }
+                if (this.transferActive || this.localPending || this.localError || this.localSettingsChanged() || $('.ui-dialog-overlay input, .ui-dialog-overlay textarea')) { event.preventDefault(); event.returnValue = ''; }
             });
             window.addEventListener('focus', () => this.refreshLocalNavigation());
             window.addEventListener('online', () => this.checkAdministratorSync());
@@ -3234,9 +3206,14 @@
             input.oninput = event => { this.handleSearchInput(event); this.autoGrowPasteInput(); };
             input.addEventListener('paste', event => {
                 if (this.pasteMode) return;
-                const code = this.parsePickupCode(event.clipboardData?.getData('text') || '');
-                if (!code) return;
-                event.preventDefault(); this.pickupDismissedCode = null; input.value = code; this.handleSearchInput(input);
+                const pickup = this.parsePickup(event.clipboardData?.getData('text') || '');
+                if (!pickup) return;
+                event.preventDefault();
+                this.pickupDismissedCode = null;
+                input.value = (pickup.kind === 'link' || pickup.kind === 'word-link')
+                    ? pickup.href
+                    : pickup.kind === 'word' ? pickup.code : ShareCode.groupCode(pickup.code);
+                this.handleSearchInput(input);
             });
             const settleDrag = () => {
                 window.removeEventListener('pointerup', settleDrag); window.removeEventListener('pointercancel', settleDrag);
@@ -3252,6 +3229,41 @@
                 }
             });
             $('#helpBtn').onclick = () => this.showHelp();
+            $('#captionShareText').onclick = () => {
+                const input = $('#searchInput');
+                const text = input.value.trim().replace(/^[>》]\s*/, '');
+                input.value = '> ' + text;
+                input.focus();
+                input.setSelectionRange(input.value.length, input.value.length);
+                this.handleSearchInput(input);
+                this.autoGrowPasteInput();
+            };
+            $('#captionShareFile').onclick = () => {
+                const input = $('#searchInput');
+                input.value = '》';
+                input.focus();
+                input.setSelectionRange(1, 1);
+                this.handleSearchInput(input);
+                $('#transferFileInput').click();
+            };
+            $('#captionPickup').onclick = () => {
+                const input = $('#searchInput');
+                input.focus();
+                input.select();
+            };
+            $('#transferFileBtn').onclick = () => $('#transferFileInput').click();
+            $('#transferFileInput').onchange = async event => {
+                const file = event.target.files && event.target.files[0];
+                event.target.value = '';
+                if (file) {
+                    const input = $('#searchInput');
+                    if (input && this.isFileShareTrigger((input.value || '')[0])) {
+                        input.value = '';
+                        this.handleSearchInput(input);
+                    }
+                    await this.shareFile(file);
+                }
+            };
             $('#layoutBtn').onclick = () => this.toggleEditLayout();
             this.syncFooterEntries();
             $('#homeThemeSwitcher').onclick = event => {
@@ -3305,7 +3317,10 @@
                 else if (this.pasteMode) this.exitPasteMode();
                 else {
                     const pickup = this.resolvePickup(input.value);
-                    if (pickup.code) { this.pickupDismissedCode = pickup.code; this.syncSearchSubmitLabel(false); }
+                    if (pickup.pickup) {
+                        this.pickupDismissedCode = pickup.pickup.key;
+                        this.syncSearchSubmitLabel(false, this.isFileShareTrigger((input.value || '')[0]));
+                    }
                 }
             };
         }
@@ -4185,48 +4200,77 @@
             }
         }
 
-        isPasteTrigger(char) {
-            return char === '>' || char === '》';
+        // 两个触发符分工：半角 > 进入文本分享，全角 》 交给文件选择。
+        // 以前两者都进文本分享，输入法全角状态下想选文件会误开分享框。
+        isTextShareTrigger(char) {
+            return char === '>';
         }
 
-        // 取件码识别：整串必须就是码本身，或指向 /p/<code> 的**绝对**链接。
-        // - 整串锚定：正文里夹着 tiger-482、或粘贴多行文本，都不算取件；
-        // - 只认绝对链接：相对路径 /p/<code> 会和书签模式的触发符 `/` 抢同一串
-        //   输入，而分享结果里复制出来的链接一定是绝对的，覆盖真实场景已经够了；
-        // - 码的字符集必须与服务端 isPasteCodeFormat 一致（tests 里有跨端断言）。
-        parsePickupCode(text) {
+        isFileShareTrigger(char) {
+            return char === '》';
+        }
+
+        // 取件识别只认文本 v2 的分组密钥与完整链接。单词码只保留文件分享的
+        // 取件路径，命中后由 /p/<code> 重定向到 /f/<code>；旧文本单词码不再兼容。
+        parsePickup(text) {
             const raw = String(text ?? '').trim();
             if (!raw) return null;
-            const bare = /^[a-z]{2,6}-\d{3}$/i.exec(raw);
-            if (bare) return bare[0].toLowerCase();
-            const link = /^https?:\/\/[^\s/]+\/p\/([a-z]{2,6}-\d{3})\/?(?:[?#].*)?$/i.exec(raw);
-            return link ? link[1].toLowerCase() : null;
+
+            const link = /^https?:\/\/[^\s/]+\/p\/([a-z2-7]{26})(?:[/?#]([^\s]*))?$/i.exec(raw);
+            if (link) {
+                const id = link[1].toLowerCase();
+                const hasKey = ShareCode.normalizeCode(link[2] || '').length === ShareCode.CODE_LENGTH;
+                return { kind: 'link', key: (hasKey ? 'text:' : 'id:') + id, href: raw, id };
+            }
+
+            const fileLink = /^https?:\/\/[^\s/]+\/(?:p|f)\/([a-z]{2,6}-\d{3})\/?(?:[?#].*)?$/i.exec(raw);
+            if (fileLink) {
+                const code = fileLink[1].toLowerCase();
+                return { kind: 'word-link', key: 'word:' + code, code, href: raw };
+            }
+
+            const word = /^[a-z]{2,6}-\d{3}$/i.exec(raw);
+            if (word) {
+                const code = word[0].toLowerCase();
+                return { kind: 'word', key: 'word:' + code, code };
+            }
+
+            if (ShareCode.isCode(raw)) {
+                const code = ShareCode.normalizeCode(raw);
+                return { kind: 'key', key: 'key:' + code, code };
+            }
+            return null;
         }
 
         // 「识别到码」和「这次输入确实要取件」是两个问题：Esc 取消后前者仍成立。
         // 按钮文案与回车分发都从这里取值，避免各判一次而漂移。
         resolvePickup(value) {
-            const code = this.parsePickupCode(value);
-            return { code, active: !!code && code !== this.pickupDismissedCode };
+            const pickup = this.parsePickup(value);
+            return { pickup, active: !!pickup && pickup.key !== this.pickupDismissedCode };
         }
 
-        // 普通搜索态的主按钮文案：只写「取件 / 搜索」这两个。
+        // 普通搜索态的主按钮文案：取件、选文件、搜索三选一。
         // 分享态（发送）与书签态（打开）仍由各自的 toggle* 负责——同一个节点
         // 被多处写会互相覆盖，modeBtn 历史上正是这样坏过一次。
-        syncSearchSubmitLabel(pickupActive) {
+        syncSearchSubmitLabel(pickupActive, fileActive = false) {
             const searchBtn = $('.search-btn');
             if (!searchBtn) return;
-            searchBtn.textContent = pickupActive ? '取件' : '搜索';
-            searchBtn.title = pickupActive ? '回车取回共享文本（Esc 改为搜索）' : '搜索';
+            searchBtn.textContent = fileActive ? '选文件' : pickupActive ? '取件' : '搜索';
+            searchBtn.title = fileActive
+                ? '回车选择要分享的文件'
+                : pickupActive ? '回车取回共享文本（Esc 改为搜索）' : '搜索';
         }
 
         // 接收 input 元素；也兼容直接传入事件对象
         handleSearchInput(event) {
             const input = event.target ?? event, value = input.value;
             if (!value.trim()) this.pickupDismissedCode = null;
-            const paste = value.length > 0 && this.isPasteTrigger(value[0]);
+            const paste = value.length > 0 && this.isTextShareTrigger(value[0]);
             if (paste !== this.pasteMode) { this.pasteMode = paste; this.togglePasteMode(paste); }
-            if (!paste) this.syncSearchSubmitLabel(this.resolvePickup(value).active);
+            if (!paste) {
+                const file = value.length > 0 && this.isFileShareTrigger(value[0]);
+                this.syncSearchSubmitLabel(this.resolvePickup(value).active, file);
+            }
         }
 
         exitPasteMode() {
@@ -4293,20 +4337,46 @@
 
         async handleSearch() {
             const value = $('#searchInput').value;
-            if (value.length && this.isPasteTrigger(value[0])) {
+            if (value.length && this.isFileShareTrigger(value[0])) {
+                $('#transferFileInput').click();
+                return;
+            }
+            if (value.length && this.isTextShareTrigger(value[0])) {
                 const text = value.slice(1).trim();
                 if (text) await this.showPasteOptions(text);
                 return;
             }
             const pickup = this.resolvePickup(value);
-            if (pickup.active) return this.openPickup(pickup.code);
+            if (pickup.active) return this.openPickup(pickup.pickup);
             this.search();
         }
 
-        openPickup(code) {
+        async openPickup(pickup) {
             const dropdown = $('#engineDropdown');
             if (dropdown) dropdown.hidden = true;
-            location.assign('/p/' + encodeURIComponent(code));
+            if (pickup.kind === 'link' || pickup.kind === 'word-link') {
+                try {
+                    const url = new URL(pickup.href);
+                    if (url.origin !== location.origin) {
+                        this.showToast('仅支持本站分享链接', 'error');
+                        return;
+                    }
+                    // 文本链接统一成小写 ID，避免大小写差异把服务端路由判成无效。
+                    if (pickup.kind === 'link') url.pathname = '/p/' + pickup.id;
+                    location.assign(url.href);
+                } catch {
+                    this.showToast('分享链接无效', 'error');
+                }
+                return;
+            }
+            if (pickup.kind === 'word') {
+                location.assign('/p/' + encodeURIComponent(pickup.code));
+                return;
+            }
+            if (pickup.kind === 'key') {
+                // 码即密钥，ID 由它的散列在本地算出，服务端不参与。
+                location.assign(`/p/${await ShareCode.deriveId(pickup.code)}#${pickup.code}`);
+            }
         }
 
         async showPasteOptions(content) {
@@ -4353,21 +4423,14 @@
 
         async createPaste(content, pin = null, options = {}) {
             try {
-                // 先请求生成分享码
-                const codeRes = await fetch('/api/p/code', { method: 'POST' });
-                const codeData = await codeRes.json();
+                // v2：取件码在浏览器生成，本身就是 128 位密钥。
+                // 服务端只拿到散列后的 ID 与密文，拿不到密钥。
+                const code = ShareCode.generateCode();
+                const id = await ShareCode.deriveId(code);
+                const proof = await ShareCode.deriveProof(code);
+                const encryptedContent = await Crypto.encryptWithCode(content, code);
 
-                if (!codeData.code) {
-                    this.showToast(codeData.error || '创建分享失败', 'error');
-                    return;
-                }
-
-                const code = codeData.code;
-
-                // 使用分享码进行端到端加密
-                const encryptedContent = await Crypto.encrypt(content, code);
-
-                const body = { code, content: encryptedContent };
+                const body = { code: id, content: encryptedContent, proof };
                 if (pin) body.pin = pin;
                 if (options.ttlMinutes) body.ttl = options.ttlMinutes;
 
@@ -4382,7 +4445,10 @@
                     $('#searchInput').value = '';
                     this.pasteMode = false;
                     this.togglePasteMode(false);
-                    this.showPasteResult(code, !!pin, data.expiresAt);
+                    this.showPasteResult(code, !!pin, data.expiresAt, {
+                        kind: 'text',
+                        link: `${location.origin}/p/${id}#${ShareCode.normalizeCode(code)}`
+                    });
                 } else {
                     this.showToast(data.error || '创建分享失败', 'error');
                 }
@@ -4391,20 +4457,27 @@
             }
         }
 
-        showPasteResult(code, hasPin = false, expiresAt = null) {
+        showPasteResult(code, hasPin = false, expiresAt = null, meta = {}) {
             this.hidePasteResult();
 
-            const url = `${location.origin}/p/${code}`;
-            const pinInfo = hasPin ? '<div class="paste-pin-info">已设置 PIN 保护</div>' : '';
+            const url = meta.link || `${location.origin}/p/${code}`;
+            const pinInfo = hasPin ? '<div class="paste-pin-info">已设置 PIN 保护，请通过另一渠道告知</div>' : '';
+            const fileInfo = meta.kind === 'file'
+                ? `<div class="paste-file-info">${this.esc(meta.name || '文件')} · ${this.esc(this.formatBytes(meta.size || 0))}</div>`
+                : '';
+            const longCode = code.length > 18 ? ' is-long' : '';
             const result = html(`
                 <div class="paste-result" id="pasteResult">
                     <button class="paste-close" type="button" aria-label="关闭分享结果">×</button>
-                    <div class="paste-code">${this.esc(code)}</div>
+                    <div class="paste-label">取件码</div>
+                    <div class="paste-code${longCode}">${this.esc(code)}</div>
+                    ${fileInfo}
                     ${pinInfo}
                     <div class="paste-qr"><img alt="分享链接二维码"></div>
                     <button class="paste-link" type="button" data-url="${this.esc(url)}">复制链接</button>
                     <div class="paste-url">${this.esc(url)}</div>
                     <div class="paste-expiry">${this.esc(this.pasteExpiryText(expiresAt))}</div>
+                    <div class="paste-secret-note">取件码和链接等同于访问凭据，请只发给接收者。</div>
                 </div>
             `);
 
@@ -4458,9 +4531,178 @@
             if (existing) existing.remove();
         }
 
+        formatBytes(bytes) {
+            if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+            const value = bytes / Math.pow(1024, index);
+            return (index === 0 ? String(bytes) : value.toFixed(value >= 10 ? 0 : 1)) + ' ' + units[index];
+        }
+
+        async shareFile(file) {
+            if (!file) return;
+            if (!file.size) {
+                this.showToast('不能分享空文件', 'error');
+                return;
+            }
+
+            let limits;
+            try {
+                limits = await API.get('/api/file/limits');
+            } catch (error) {
+                this.showToast('读取文件分享配置失败：' + error.message, 'error');
+                return;
+            }
+            if (file.size > limits.maxFileBytes) {
+                this.showToast(`文件过大，单文件上限 ${this.formatBytes(limits.maxFileBytes)}`, 'error');
+                return;
+            }
+
+            const TTL_LABELS = { 5: '5 分钟', 30: '30 分钟', 1440: '1 天', 10080: '7 天' };
+            const result = await this.showUiDialog({
+                title: '分享文件',
+                message: `${file.name} · ${this.formatBytes(file.size)}`,
+                options: [
+                    { kind: 'checkbox', name: 'pin', value: 'on', label: '设置 PIN 码保护', hint: '接收方需输入 PIN 才能下载', reveal: true }
+                ],
+                groups: [
+                    {
+                        label: '有效期',
+                        options: Object.entries(TTL_LABELS).map(([minutes, label], index) => ({
+                            kind: 'radio',
+                            name: 'ttl',
+                            value: minutes,
+                            label,
+                            checked: index === 0
+                        }))
+                    }
+                ],
+                confirmText: '上传',
+                closeOnBackdrop: false,
+                reveal: { label: '4 位数字 PIN 码', maxlength: 4 },
+                validate: (values, choices) => choices.pin && !/^\d{4}$/.test(values[0] || '') ? 'PIN 码必须是 4 位数字' : ''
+            });
+            if (!result) return;
+
+            const pin = result.choices.pin ? result.values[0] : null;
+            const ttlMinutes = TTL_LABELS[result.choices.ttl] ? Number(result.choices.ttl) : 5;
+            await this.uploadFile(file, { pin, ttlMinutes, limits });
+        }
+
+        showTransferProgress(fileName, onCancel) {
+            const overlay = html(`
+                <div class="transfer-progress-overlay">
+                    <div class="transfer-progress" role="dialog" aria-modal="true" aria-labelledby="transferProgressTitle">
+                        <p class="transfer-progress-title" id="transferProgressTitle">${this.esc(fileName)}</p>
+                        <div class="transfer-progress-bar"><span></span></div>
+                        <p class="transfer-progress-status" role="status" aria-live="polite">正在准备上传...</p>
+                        <p class="transfer-progress-warning">上传期间请不要关闭或刷新此页面，关闭会中断传输。</p>
+                        <button class="btn btn-sm" type="button" data-action="cancel">取消</button>
+                    </div>
+                </div>
+            `);
+            const bar = overlay.querySelector('.transfer-progress-bar span');
+            const status = overlay.querySelector('.transfer-progress-status');
+            const cancel = overlay.querySelector('[data-action="cancel"]');
+            cancel.onclick = () => {
+                cancel.disabled = true;
+                status.textContent = '正在取消...';
+                onCancel();
+            };
+            document.body.append(overlay);
+
+            const app = this;
+            return {
+                update(done, total) {
+                    const percent = total ? Math.min(100, Math.round(done / total * 100)) : 0;
+                    bar.style.width = `${percent}%`;
+                    status.textContent = `正在加密上传 ${percent}%（${app.formatBytes(done)} / ${app.formatBytes(total)}）`;
+                },
+                close() { overlay.remove(); }
+            };
+        }
+
+        async uploadFile(file, { pin, ttlMinutes, limits }) {
+            const controller = new AbortController();
+            const progress = this.showTransferProgress(file.name, () => controller.abort());
+            this.transferActive = true;
+            let code = null;
+            try {
+                const codeData = await API.post('/api/file/code', {});
+                code = codeData.code;
+                if (!code) throw new Error('未分配取件码');
+
+                const chunkSize = limits.chunkSize;
+                const chunkBytes = limits.chunkBytes;
+                const chunkCount = Math.ceil(file.size / chunkSize);
+                const storedSize = file.size + 28 * chunkCount;
+
+                progress.update(0, file.size);
+                await API.post('/api/file/init', {
+                    code,
+                    size: file.size,
+                    storedSize,
+                    chunkSize,
+                    chunkBytes,
+                    name: file.name,
+                    type: file.type || 'application/octet-stream',
+                    pin,
+                    ttl: ttlMinutes,
+                    downloads: 1
+                });
+
+                const key = await Crypto.deriveKey(code);
+                for (let index = 0; index < chunkCount; index++) {
+                    if (controller.signal.aborted) throw new DOMException('已取消', 'AbortError');
+                    const start = index * chunkSize;
+                    const end = Math.min(start + chunkSize, file.size);
+                    const plain = new Uint8Array(await file.slice(start, end).arrayBuffer());
+                    const iv = crypto.getRandomValues(new Uint8Array(12));
+                    const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain));
+                    const combined = new Uint8Array(iv.length + encrypted.length);
+                    combined.set(iv);
+                    combined.set(encrypted, iv.length);
+
+                    const { res } = await API.request(`/api/file/${encodeURIComponent(code)}/chunk/${index}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/octet-stream' },
+                        body: combined,
+                        signal: controller.signal
+                    }, true);
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.error || '分片上传失败');
+                    }
+                    progress.update(end, file.size);
+                }
+
+                const finished = await API.post(`/api/file/${encodeURIComponent(code)}/finish`, {});
+                progress.close();
+                this.showPasteResult(code, !!pin, finished.expiresAt, {
+                    kind: 'file',
+                    name: file.name,
+                    size: file.size
+                });
+            } catch (error) {
+                progress.close();
+                if (code) {
+                    fetch(`/api/file/${encodeURIComponent(code)}`, {
+                        method: 'DELETE',
+                        credentials: 'same-origin',
+                        headers: { 'X-Pabu-Request': '1' }
+                    }).catch(() => {});
+                }
+                if (error.name !== 'AbortError') {
+                    this.showToast('上传失败：' + (error.message || '未知错误'), 'error');
+                }
+            } finally {
+                this.transferActive = false;
+            }
+        }
+
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>文件分享</strong><p>搜索框输入 》 或点击「传文件」选择文件，浏览器加密后上传，可设 PIN 和有效期。下载一次后自动从服务器删除。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };
@@ -4734,7 +4976,7 @@
                         <div class="site-canvas" id="siteCanvas"><div class="backboard">
                             <div class="home-theme-toolbar"><div class="home-theme-switcher" id="siteThemeSwitcher" role="group" aria-label="视觉主题"></div></div>
                             <header class="header" id="siteHeader"></header>
-                            <div class="search-caption" aria-hidden="true"><span><kbd>&gt;</kbd> 分享文本</span><span><kbd>取件码</kbd> 取回分享</span></div>
+                            <div class="search-caption" aria-hidden="true"><span class="caption-action"><kbd>输入&gt;</kbd>分享文本</span><span class="caption-action"><kbd>输入》</kbd>分享文件</span><span class="caption-action"><kbd>输入取件码</kbd> 取回文本文件</span></div>
                             <main class="grid" id="siteGrid"></main>
                             <footer class="site-footer" aria-label="页面操作" aria-hidden="true"><nav class="site-footer-links"><span class="site-footer-link">说明</span><span class="site-footer-sep">·</span><span class="site-footer-link">同步</span><span class="site-footer-sep">·</span><span class="site-footer-link">编辑</span></nav></footer>
                         </div></div>

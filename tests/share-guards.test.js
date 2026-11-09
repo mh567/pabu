@@ -18,7 +18,6 @@ const guards = vm.runInNewContext(
         sweepRateLimitStore,
         isOverPasteCapacity,
         resolveClientIp,
-        PASTE_CODE_LIMIT,
         PASTE_CREATE_LIMIT,
         PASTE_MAX_ENTRIES,
         PASTE_MAX_BYTES
@@ -84,11 +83,9 @@ test('capacity is refused once either the entry count or byte budget is reached'
     assert.equal(isOverPasteCapacity(0, guards.PASTE_MAX_BYTES - 1), false);
 });
 
-test('the two creation entry points get independent budgets', () => {
-    assert.equal(guards.PASTE_CODE_LIMIT, 10);
+test('文本分享不再由服务端签发短码', () => {
     assert.equal(guards.PASTE_CREATE_LIMIT, 20);
-    // A share needs one code request plus one create, so create must allow more
-    assert.ok(guards.PASTE_CREATE_LIMIT > guards.PASTE_CODE_LIMIT);
+    assert.equal(server.includes("app.post('/api/p/code'"), false);
 });
 
 // ---- wiring assertions ----
@@ -120,11 +117,8 @@ test('POST /api/p applies its own creation rate limit', () => {
     assert.match(route, /status\(429\)/, 'over-limit creates must be refused');
 });
 
-test('POST /api/p/code keeps a separate quota from the create route', () => {
-    const route = routeBody("app.post('/api/p/code'", "app.post('/api/p',");
-
-    assert.match(route, /paste:code/, 'code route must use a distinct key');
-    assert.match(route, /PASTE_CODE_LIMIT/, 'code route must apply the code limit');
+test('旧版短码签发接口已经移除', () => {
+    assert.equal(executable.includes("app.post('/api/p/code'"), false);
 });
 
 test('the read route is limited independently as well', () => {

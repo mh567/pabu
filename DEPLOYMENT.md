@@ -104,6 +104,7 @@ cd ~/pabu
 - `pabu.db`：管理员会话、导航版本、口令同步空间、邀请码及恢复回执
 - `config.json`：服务发布的默认导航模板
 - `.admin-password.json`：管理员口令哈希
+- `transfers/`：文件分享的临时密文分片，不需要备份，服务启动时会清空
 - 浏览器 IndexedDB `pabu-personal`：访客本地导航
 
 停机后备份：
@@ -114,7 +115,7 @@ tar -czf pabu-backup-$(date +%Y%m%d).tar.gz \
   config.json .admin-password.json .env server-config.json pabu.db
 ```
 
-恢复后执行 `./pabu.sh restart`。分享内容为临时数据，保存在运行进程内存中，服务重启后会清除。
+恢复后执行 `./pabu.sh restart`。文本与文件分享都是临时数据，元数据保存在运行进程内存中，文件密文分片保存在 `transfers/`，服务重启后会一起清除。文件分享默认单文件 64 MiB、总量 256 MiB，可用 `.env` 中的 `PABU_TRANSFER_MAX_FILE`、`PABU_TRANSFER_MAX_TOTAL`、`PABU_TRANSFER_MAX_ENTRIES` 和 `PABU_TRANSFER_CHUNK_SIZE` 调整。
 
 ## 反向代理与 HTTPS
 

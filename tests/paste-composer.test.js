@@ -13,11 +13,13 @@ test('Pabu home exposes the search-based temporary text sharing flow', () => {
     assert.match(app, /Pabu/);
 });
 
-test('the browser encrypts text before sending it to the sharing API', () => {
-    const encrypt = app.slice(app.indexOf('async encrypt(text, code)'), app.indexOf('async decrypt(encryptedBase64, code)'));
-    const keyDerivation = app.slice(app.indexOf('async deriveKey(code)'), app.indexOf('async encrypt(text, code)'));
+test('the browser generates the key and encrypts before sending it to the sharing API', () => {
+    const encrypt = app.slice(app.indexOf('async encryptWithCode(text, code)'), app.indexOf('async showPasteOptions'));
     assert.match(encrypt, /crypto\.subtle\.encrypt/);
-    assert.match(encrypt, /deriveKey\(code\)/);
-    assert.match(keyDerivation, /PBKDF2/);
-    assert.match(keyDerivation, /AES-GCM/);
+    assert.match(encrypt, /importShareKey\(code\)/);
+    assert.match(app, /ShareCode\.generateCode\(\)/);
+    assert.match(app, /await ShareCode\.deriveId\(code\)/);
+    assert.match(app, /await ShareCode\.deriveProof\(code\)/);
+    assert.equal(app.includes("fetch('/api/p/code'"), false);
+    assert.equal(/PBKDF2/.test(app), false, '浏览器端不再从短码派生密钥');
 });

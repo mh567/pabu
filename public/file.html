@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="robots" content="noindex">
+    <title>文件分享</title>
+    <script>
+        try {
+            const saved = JSON.parse(sessionStorage.getItem('pabu-appearance'));
+            if (saved && ['classic', 'prism'].includes(saved.style) && ['auto', 'light', 'dark'].includes(saved.mode)) {
+                document.documentElement.dataset.themeStyle = saved.style;
+                document.documentElement.dataset.theme = saved.mode;
+            }
+        } catch (e) {}
+    </script>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #efede8; --panel: rgba(252,250,246,.91); --text: #302b27;
+            --text-secondary: #655e57; --border: rgba(92,76,64,.18); --accent: #945e4a;
+            --accent-hover: #79503f; --focus: rgba(148,94,74,.58);
+            --control-top: #fcfaf6; --control-bottom: #eee9e1;
+            --input-top: #f1ece5; --input-bottom: #fcfaf6;
+            --inner-light: rgba(255,255,255,.67); --inner-dark: rgba(91,70,55,.13);
+            --text-muted: #8b837a;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                color-scheme: dark;
+                --bg: #211f1c; --panel: rgba(57,51,46,.93); --text: #f3eee8;
+                --text-secondary: #c9beb3; --border: rgba(222,203,185,.18); --accent: #c28d70;
+                --accent-hover: #d4a181; --focus: rgba(223,169,140,.68);
+                --control-top: #625951; --control-bottom: #3c3630;
+                --input-top: #292521; --input-bottom: #39312b;
+                --inner-light: rgba(255,255,255,.09); --inner-dark: rgba(0,0,0,.24);
+                --text-muted: #9c9287;
+            }
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #211f1c; --panel: rgba(57,51,46,.93); --text: #f3eee8;
+            --text-secondary: #c9beb3; --border: rgba(222,203,185,.18); --accent: #c28d70;
+            --accent-hover: #d4a181; --focus: rgba(223,169,140,.68);
+            --control-top: #625951; --control-bottom: #3c3630;
+            --input-top: #292521; --input-bottom: #39312b;
+            --inner-light: rgba(255,255,255,.09); --inner-dark: rgba(0,0,0,.24);
+            --text-muted: #9c9287;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+            background: var(--bg); color: var(--text); min-height: 100dvh;
+            display: flex; align-items: center; justify-content: center;
+            padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+                     max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+        }
+        .container {
+            width: 100%; max-width: 520px; background: var(--panel);
+            border: 1px solid var(--border); border-radius: 16px;
+            padding: 24px;
+            box-shadow: inset 0 1px var(--inner-light), 0 20px 48px rgba(35,27,21,.21);
+            backdrop-filter: blur(23px) saturate(118%); -webkit-backdrop-filter: blur(23px) saturate(118%);
+        }
+        .title { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 15px; }
+        .file-name { font-size: 17px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; margin-bottom: 6px; }
+        .file-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            min-height: 38px; padding: 7px 15px; background: linear-gradient(170deg,var(--control-top),var(--control-bottom)); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13px; font-weight: 600;
+            box-shadow: inset 0 1px var(--inner-light); cursor: pointer; text-decoration: none;
+            transition: transform 110ms, border-color 140ms, background 140ms;
+        }
+        .btn:hover { transform: translateY(-1px); border-color: var(--focus); }
+        .btn:active { transform: translateY(1px); }
+        .btn:disabled { opacity: .55; cursor: default; transform: none; }
+        .btn:focus-visible, .pin-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+        .pin-form { display: flex; gap: 12px; flex-wrap: wrap; }
+        .pin-input {
+            flex: 1; min-width: 120px; padding: 10px 16px; font-size: 18px;
+            text-align: center; letter-spacing: 8px; border: 1px solid var(--border);
+            border-radius: 8px; background: linear-gradient(180deg,var(--input-top),var(--input-bottom)); color: var(--text);
+            box-shadow: inset 0 1px 2px var(--inner-dark), inset 0 -1px var(--inner-light);
+        }
+        .notice { font-size: 13px; color: var(--text-secondary); margin-top: 14px; line-height: 1.6; }
+        .status { font-size: 12px; color: var(--text-muted); margin-top: 10px; min-height: 18px; }
+        .progress { height: 6px; border-radius: 999px; background: var(--input-top); overflow: hidden; margin-top: 14px; }
+        .progress span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 160ms; }
+        .error { text-align: center; color: var(--text-secondary); }
+        .error .mark { font-size: 32px; line-height: 1; margin-bottom: 14px; }
+        .error .btn { margin-top: 22px; }
+        .msg { padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; }
+        .msg.error-msg { border: 1px solid var(--border); background: var(--input-top); color: var(--accent); }
+        @media (max-width: 480px) { body { padding: 14px; } .container { padding: 20px 17px; } .pin-form .btn { min-height: 44px; } }
+        @media (prefers-reduced-motion: reduce) { .btn, .progress span { transition: none; } .btn:hover, .btn:active { transform: none; } }
+        @media (prefers-reduced-transparency: reduce) { .container { background: var(--input-bottom); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+    </style>
+    <link rel="stylesheet" href="/themes.css">
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="title">正在读取文件信息...</div>
+
+        <div id="errorBox" class="error" hidden>
+            <p class="mark" aria-hidden="true">◇</p>
+            <p id="errorText">文件不存在或已过期</p>
+            <a href="/" class="btn">返回首页</a>
+        </div>
+
+        <div id="pinPanel" hidden>
+            <div class="title">此文件需要验证 PIN</div>
+            <form class="pin-form" id="pinForm">
+                <input type="text" class="pin-input" id="pinInput" maxlength="4" pattern="\d{4}"
+                       placeholder="••••" autocomplete="off" inputmode="numeric" aria-label="4 位 PIN 码">
+                <button type="submit" class="btn">验证</button>
+            </form>
+            <div id="pinError" class="msg error-msg" role="alert" hidden></div>
+        </div>
+
+        <div id="downloadPanel" hidden>
+            <div class="title">文件</div>
+            <div class="file-name" id="fileName"></div>
+            <div class="file-meta" id="fileMeta"></div>
+            <button class="btn" id="downloadBtn" type="button">下载并解密</button>
+            <div class="progress" id="progress" hidden><span id="progressBar"></span></div>
+            <div class="status" id="status" role="status" aria-live="polite"></div>
+            <p class="notice" id="notice">下载期间请不要关闭或刷新此页面。文件在浏览器内解密，服务端只保存密文，下载完成后会从服务器删除。</p>
+        </div>
+    </div>
+
+    <script>
+        (() => {
+            'use strict';
+
+            const CODE_RE = /^[a-z]{2,6}-\d{3}$/i;
+            const code = decodeURIComponent((location.pathname.split('/').filter(Boolean).pop() || '')).toLowerCase();
+            const $ = sel => document.querySelector(sel);
+            let accessInfo = null;
+            let pinValue = '';
+            let downloading = false;
+
+            // 下载在途时关闭或刷新会丢掉已接收的分片，需要浏览器确认一次。
+            window.addEventListener('beforeunload', event => {
+                if (!downloading) return;
+                event.preventDefault();
+                event.returnValue = '';
+            });
+
+            function fail(message) {
+                $('#loading').hidden = true;
+                $('#pinPanel').hidden = true;
+                $('#downloadPanel').hidden = true;
+                $('#errorText').textContent = message;
+                $('#errorBox').hidden = false;
+            }
+
+            function formatBytes(bytes) {
+                if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+                const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+                const value = bytes / Math.pow(1024, index);
+                return (index === 0 ? String(bytes) : value.toFixed(value >= 10 ? 0 : 1)) + ' ' + units[index];
+            }
+
+            function expiryText(expiresAt) {
+                if (!expiresAt) return '';
+                const minutes = Math.round((expiresAt - Date.now()) / 60000);
+                if (minutes <= 0) return '已过期';
+                if (minutes < 60) return minutes + ' 分钟后过期';
+                if (minutes < 1440) return Math.round(minutes / 60) + ' 小时后过期';
+                return Math.round(minutes / 1440) + ' 天后过期';
+            }
+
+            async function requestAccess(pin) {
+                const response = await fetch('/api/file/' + encodeURIComponent(code) + '/access', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Pabu-Request': '1' },
+                    body: JSON.stringify(pin ? { pin } : {})
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw Object.assign(new Error(data.error || '取件失败'), { status: response.status, code: data.code });
+                }
+                return data;
+            }
+
+            function renderDownload() {
+                $('#fileName').textContent = accessInfo.name || '未命名文件';
+                const meta = [formatBytes(accessInfo.size), accessInfo.type || 'application/octet-stream', expiryText(accessInfo.expiresAt)]
+                    .filter(Boolean).join(' · ');
+                $('#fileMeta').textContent = meta;
+                $('#loading').hidden = true;
+                $('#pinPanel').hidden = true;
+                $('#downloadPanel').hidden = false;
+                $('#downloadBtn').focus();
+            }
+
+            async function deriveKey() {
+                const enc = new TextEncoder();
+                const material = await crypto.subtle.importKey(
+                    'raw', enc.encode(code + '-pabu-e2e'), 'PBKDF2', false, ['deriveKey']
+                );
+                return crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt: enc.encode('pabu-paste-v2'), iterations: 100000, hash: 'SHA-256' },
+                    material,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['decrypt']
+                );
+            }
+
+            async function decryptChunks(encrypted) {
+                const key = await deriveKey();
+                const chunks = [];
+                let offset = 0;
+                for (let index = 0; index < accessInfo.chunkCount; index++) {
+                    const length = index === accessInfo.chunkCount - 1
+                        ? accessInfo.storedSize - offset
+                        : accessInfo.chunkBytes;
+                    const view = encrypted.subarray(offset, offset + length);
+                    offset += length;
+                    const iv = view.subarray(0, 12);
+                    const data = view.subarray(12);
+                    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+                    chunks.push(new Uint8Array(plain));
+                }
+                const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+                const output = new Uint8Array(total);
+                let written = 0;
+                for (const chunk of chunks) {
+                    output.set(chunk, written);
+                    written += chunk.length;
+                }
+                return output;
+            }
+
+            async function download() {
+                const button = $('#downloadBtn');
+                button.disabled = true;
+                downloading = true;
+                $('#progress').hidden = false;
+                $('#progressBar').style.width = '0%';
+                $('#status').textContent = '正在下载，请不要关闭或刷新此页面...';
+                try {
+                    const response = await fetch(
+                        '/api/file/' + encodeURIComponent(code) + '/download',
+                        { cache: 'no-store', headers: { 'X-Pabu-Grant': accessInfo.token } }
+                    );
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || '下载失败');
+                    }
+
+                    const total = Number(response.headers.get('content-length')) || accessInfo.storedSize;
+                    const reader = response.body.getReader();
+                    const parts = [];
+                    let loaded = 0;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        parts.push(value);
+                        loaded += value.length;
+                        $('#progressBar').style.width = Math.min(100, Math.round(loaded / total * 100)) + '%';
+                        $('#status').textContent = '已下载 ' + formatBytes(loaded) + ' / ' + formatBytes(total) + ' · 请不要关闭页面';
+                    }
+
+                    const encrypted = new Uint8Array(loaded);
+                    let offset = 0;
+                    for (const part of parts) {
+                        encrypted.set(part, offset);
+                        offset += part.length;
+                    }
+
+                    $('#status').textContent = '正在解密，请不要关闭页面...';
+                    const plain = await decryptChunks(encrypted);
+                    const blob = new Blob([plain], { type: accessInfo.type || 'application/octet-stream' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = accessInfo.name || 'download';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+                    downloading = false;
+                    $('#progressBar').style.width = '100%';
+                    $('#status').textContent = '已开始下载，文件已从服务器删除';
+                    $('#notice').textContent = '此文件已从服务器删除。';
+                    button.textContent = '已取件';
+                } catch (error) {
+                    downloading = false;
+                    $('#status').textContent = error.message || '下载失败';
+                    button.disabled = false;
+                    button.textContent = '重新取件';
+                    button.onclick = async () => {
+                        button.disabled = true;
+                        try {
+                            accessInfo = await requestAccess(pinValue);
+                            renderDownload();
+                            await download();
+                        } catch (nextError) {
+                            button.disabled = false;
+                            $('#status').textContent = nextError.message || '取件失败';
+                        }
+                    };
+                }
+            }
+
+            async function start(pin) {
+                try {
+                    accessInfo = await requestAccess(pin);
+                    $('#pinError').hidden = true;
+                    renderDownload();
+                    $('#downloadBtn').onclick = download;
+                } catch (error) {
+                    if (error.code === 'pin_required') {
+                        $('#loading').hidden = true;
+                        $('#pinPanel').hidden = false;
+                        $('#pinError').hidden = false;
+                        $('#pinError').textContent = error.message;
+                        $('#pinInput').focus();
+                        return;
+                    }
+                    fail(error.code === 'pin_destroyed' ? 'PIN 错误次数过多，文件已销毁' : (error.message || '取件失败'));
+                }
+            }
+
+            async function boot() {
+                if (!CODE_RE.test(code)) return fail('链接无效');
+                try {
+                    const response = await fetch('/api/file/' + encodeURIComponent(code) + '/meta', { cache: 'no-store' });
+                    const meta = await response.json().catch(() => ({}));
+                    if (!meta.exists) return fail('文件不存在或已过期');
+                    if (meta.expired) return fail('文件已过期');
+                    if (meta.uploading) return fail('文件尚未上传完成，请稍后再试');
+                    if (meta.hasPin) {
+                        $('#loading').hidden = true;
+                        $('#pinPanel').hidden = false;
+                        $('#pinInput').focus();
+                        return;
+                    }
+                    await start(null);
+                } catch (error) {
+                    fail('读取文件信息失败');
+                }
+            }
+
+            $('#pinForm').addEventListener('submit', async event => {
+                event.preventDefault();
+                pinValue = $('#pinInput').value;
+                if (!/^\d{4}$/.test(pinValue)) {
+                    $('#pinError').hidden = false;
+                    $('#pinError').textContent = 'PIN 必须是 4 位数字';
+                    return;
+                }
+                await start(pinValue);
+            });
+
+            boot();
+        })();
+    </script>
+</body>
+</html>
