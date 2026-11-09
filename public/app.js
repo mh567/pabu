@@ -3251,7 +3251,6 @@
                 input.focus();
                 input.select();
             };
-            $('#transferFileBtn').onclick = () => $('#transferFileInput').click();
             $('#transferFileInput').onchange = async event => {
                 const file = event.target.files && event.target.files[0];
                 event.target.value = '';
@@ -4702,7 +4701,7 @@
 
         showHelp() {
             const returnFocus = document.activeElement;
-            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>文件分享</strong><p>搜索框输入 》 或点击「传文件」选择文件，浏览器加密后上传，可设 PIN 和有效期。下载一次后自动从服务器删除。</p></div></div></div>`);
+            const overlay = html(`<div class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="help-content"><button class="help-close" type="button">关闭</button><h3 id="helpTitle">Pabu导航</h3><div class="help-section"><strong>导航编辑</strong><p>点击「编辑」增删分类与链接，调整搜索引擎和显示选项。</p></div><div class="help-section"><strong>多端同步</strong><p>点击「同步」用同一口令连接其他设备，导航修改会自动同步。</p></div><div class="help-section"><strong>文本分享</strong><p>搜索框输入 &gt; 编写临时加密文本，通过链接或取件码分享，可设 PIN 和有效期。</p></div><div class="help-section"><strong>文件分享</strong><p>搜索框输入 》 或点击搜索框下方的「输入》分享文件」选择文件，浏览器加密后上传，可设 PIN 和有效期。下载一次后自动从服务器删除。</p></div></div></div>`);
             const close = () => { overlay.remove(); if (returnFocus?.isConnected) returnFocus.focus(); };
             overlay.onclick = event => { if (event.target === overlay || event.target.closest('.help-close')) close(); };
             overlay.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); close(); } };

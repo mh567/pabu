@@ -1344,6 +1344,7 @@ test('底栏入口顺序固定为说明、同步、编辑，管理入口不在�
     assert.deepEqual(order, [...order].sort((a, b) => a - b), '顺序：说明 → 同步 → 编辑');
     assert.equal(footer.includes('id="adminBtn"'), false, '首页不再展示管理入口');
     assert.equal(footer.includes('id="appearanceBtn"'), false, '底栏不再展示外观入口');
+    assert.equal(footer.includes('id="transferFileBtn"'), false, '底栏不再展示传文件入口');
     assert.equal(footer.includes('id="appearanceSep"'), false, '外观分隔符一并移除');
 
     assert.match(indexCode, /classList\.add\('admin-page'\)/, '/admin 先打后台页面标记');
