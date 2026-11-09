@@ -1425,6 +1425,31 @@ test('底栏入口的排版与窄屏触控下限', () => {
         '窄屏把底栏入口撑到 44px 触控下限');
 });
 
+test('触控目标按指针类型补齐，折叠屏内屏不受宽度断点漏掉', () => {
+    // 折叠屏内屏（673 / 820 / 884）与平板都是手指在点，但都宽于 600px。
+    // 只按宽度断点的话这些设备拿到 30px 底栏与 32px 主题按钮，低于 44px 下限。
+    const coarse = mediaBlock(fullCode, '@media (pointer: coarse)', '.site-footer-link');
+    assert.match(coarse, /\.site-footer-link \{[^}]*min-height:\s*44px/,
+        '粗指针设备底栏入口 44px 高');
+    assert.match(coarse, /\.site-footer-link \{[^}]*min-width:\s*44px/,
+        '宽度也要到 44px：只有高度够时实测仍判为不可点');
+    assert.match(coarse, /\.home-theme-switcher button \{[^}]*min-height:\s*44px/,
+        '粗指针设备主题按钮 44px');
+    // 细指针桌面窄窗口不该被这条撑高：max-width 那档只保留主题按钮。
+    const narrow = mediaBlock(fullCode, '@media (max-width: 600px)', '.home-theme-switcher button');
+    assert.doesNotMatch(narrow, /\.site-footer-link/, '≤600px 不重复声明底栏，交给粗指针那条');
+});
+
+test('折叠屏外屏网格退到两列，标题不被截成半个词', () => {
+    // 280–360px 三列时每张卡只剩 67–81px，「Hacker News」会被截断。
+    const block = mediaBlock(fullCode, '@media (max-width: 360px)', '.bookmarks');
+    assert.match(block, /\.bookmarks \{[^}]*grid-template-columns:\s*repeat\(2,/,
+        '≤360px 两列');
+    // 更宽的小屏仍是三列，不要把它一起改掉。
+    const three = mediaBlock(fullCode, '@media (max-width: 480px)', '.bookmarks');
+    assert.match(three, /grid-template-columns:\s*repeat\(3,/, '480px 档保持三列');
+});
+
 test('引擎行的事件委托锚点与模板标记同源', () => {
     const fn = methodBodyOf(appCode, 'renderLocalSettings() {');
     // 委托用 closest() 找行容器，模板用 class 造行容器——两者必须是同一个名字。

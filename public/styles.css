@@ -1893,7 +1893,13 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 /* 三列铺满可用宽度：原先的 max-width:304px 在 390px 宽的机型上右侧留出大片空白，
    且使上一条 ≤600px 规则里的 auto-fill 96px 变成死代码（同为 ≤480px 且同特异性，后者在后）。 */
 @media (max-width: 480px) { .bookmarks { max-width: 100%; grid-template-columns: repeat(3,minmax(0,1fr)); } }
-@media (max-width: 370px) { .search { gap: 2px; } .search-mode { min-width: 43px; padding: 0 6px; } .search-engine { min-width: 55px; padding: 0 5px; } .search-input { padding: 0 5px; } .search-btn { min-width: 43px; padding: 0 6px; } }
+/* 折叠屏外屏与 320px 级别的小屏：三列时每张卡只剩 67–81px，
+   「Hacker News」这类两词标题会被截成「Hacker…」。两列给回可读宽度，
+   也顺带让 ＋占位卡不再被挤到第二行、把分类高度撑得不齐。 */
+@media (max-width: 360px) { .bookmarks { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+/* 极窄屏宽度优先，但不吃掉触控下限：43px 是原先按 370px 视口挤出来的值，
+   低于 44px 一像素就会在实测里被判为不可点。三按钮都守在 44px。 */
+@media (max-width: 370px) { .search { gap: 2px; } .search-mode { min-width: 44px; padding: 0 6px; } .search-engine { min-width: 55px; padding: 0 5px; } .search-input { padding: 0 5px; } .search-btn { min-width: 44px; padding: 0 6px; } }
 
 /* ========== 宽屏背板 + 快捷键说明行 ==========
    背板是本次新增的元素。文件尾段不再重复声明本区块的规则，
@@ -2158,5 +2164,14 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .home-theme-switcher button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .home-theme-switcher button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 1023px) { .home-theme-toolbar { position: static; margin: 0 0 20px; } }
+/* 触控目标下限按**指针类型**判，不按屏幕宽度。
+   折叠屏内屏（673/820/884）与平板都是手指在点，但都宽于 600px；
+   只写 max-width 的话它们的页脚链接只有 30px、主题按钮 32px，低于 44px 下限。
+   桌面窄窗口（细指针）不受影响，仍是紧凑尺寸。 */
+@media (pointer: coarse) {
+    /* 宽高都要到 44：只有高度够、宽度 40px 的「说明 / 同步 / 编辑」实测仍判不可点。 */
+    .site-footer-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 8px; }
+    .home-theme-switcher button { min-height: 44px; min-width: 72px; }
+}
 @media (max-width: 600px) { .home-theme-switcher button { min-height: 44px; min-width: 72px; } }
 @media (prefers-reduced-motion: reduce) { .home-theme-switcher button { transition: none; } }

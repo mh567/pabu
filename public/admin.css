@@ -610,7 +610,6 @@
 }
 
 @media (max-width: 480px) {
-    .modal-content { width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 0; }
     /* 标题与「取消/保存」同行。原先 align-items:flex-start 配 .modal-actions 的
        flex-wrap:wrap，而标题只有约 35px 宽、按钮区要占满整行，两者放不下
        390px 的可用宽度，按钮必然被挤到第二行——头部实测占 118.5px
@@ -623,6 +622,11 @@
     /* 窄屏没有空间显示整句保存状态，隐藏而不是让它把按钮挤下去 */
     .config-save-status { display: none; }
     .modal-body { padding: 16px 14px calc(24px + env(safe-area-inset-bottom)); }
+
+    /* 折叠屏外屏（280–330px）：标题、返回、保存并发布三样并排会溢出，
+       「保存并发布」被裁在屏幕外。这里放开换行，并允许标题收缩省略，
+       按钮仍是 44px 触控目标。400px 以上不受影响。 */
+    .modal-content { width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 0; }
 
     /* 收藏夹三个按钮：横排时每个仅约 52px 宽。改两列网格，每格 ≥44px 高
        （触摸目标下限）。原先 styles.css 里的 grid 声明会被本文件
@@ -1213,6 +1217,12 @@
 .sync-code code { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 .sync-code small { margin-left: auto; color: var(--text-secondary); font-size: 11px; }
 .sync-space-host { overflow-x: auto; }
+/* 表格在自己的容器里横向滚动（589px 的表在 280px 屏上必然超宽）。
+   没有提示时用户看不出「还能往右划」，最后一列操作按钮像是丢了。
+   用与 .sync-pager 同一套说明行，只在真的溢出时出现——JS 按
+   scrollWidth > clientWidth 挂 .is-scrollable。 */
+.sync-scroll-hint { display: none; margin-top: 6px; color: var(--text-secondary); font-size: 11px; }
+.sync-space-host.is-scrollable + .sync-scroll-hint { display: block; }
 .sync-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .sync-table th,
 .sync-table td { padding: 7px 6px; border-bottom: 1px solid var(--admin-edge); text-align: left; white-space: nowrap; }
@@ -1231,4 +1241,24 @@ tr.sync-space-row.is-gone td { color: var(--text-secondary); text-decoration: li
     .sync-code { flex-direction: column; align-items: flex-start; }
     .sync-code small { margin-left: 0; }
     .sync-pager { justify-content: space-between; }
+}
+
+/* 折叠屏内屏与平板（673 / 820 / 884）是手指在点，但都宽于 480px，
+   只靠宽度断点拿不到 44px 触控目标：后台的 .btn-sm 仍是 32–36px。
+   按指针类型补一档，桌面窄窗口（细指针）不受影响。 */
+@media (pointer: coarse) {
+    :is(.modal, .fav-dialog, .ui-dialog) .btn-sm { min-height: 44px; }
+    .sync-toolbar .admin-select .local-select-button { min-height: 44px; }
+    .sync-invite-row input[type="checkbox"],
+    .sync-table input[type="checkbox"] { min-width: 22px; min-height: 22px; }
+}
+
+/* 折叠屏外屏（280–330px）：页头一行放不下标题 + 两个按钮，「保存并发布」
+   会被裁到屏幕外。标题独占一行并允许省略，两个按钮各占半行保持 44px。
+   断点取 360px：390px 级手机上单行本来就放得下，不需要多占这一行高度。 */
+@media (max-width: 360px) {
+    .modal-header { flex-wrap: wrap; padding: 10px 12px; }
+    .modal-header h2 { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .modal-actions { flex: 1 1 100%; gap: 6px; }
+    .modal-actions .btn { flex: 1 1 0; min-width: 0; padding: 0 8px; font-size: 12px; }
 }
