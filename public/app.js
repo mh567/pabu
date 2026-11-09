@@ -1385,7 +1385,10 @@
             if (this.syncDialogEl) return;
             const overlay = html(`
                 <div class="ui-dialog-overlay" id="syncDialog" data-action="close">
-                    <div class="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="syncDialogTitle">
+                    <div class="ui-dialog sync-dialog" role="dialog" aria-modal="true" aria-labelledby="syncDialogTitle">
+                        <button type="button" class="sync-dialog-close" id="syncClose" aria-label="关闭" data-action="close">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                        </button>
                         <h3 id="syncDialogTitle">云端空间</h3>
                         <div class="sync-dialog-body" id="syncDialogBody"></div>
                     </div>
@@ -1398,11 +1401,10 @@
             this.syncError = '';
             this.syncState = this.syncConnection ? 'connected' : 'disconnected';
             overlay.addEventListener('click', event => {
-                // 只认「点在遮罩或关闭按钮上」：内部控件的事件会冒泡到这里，
+                // 只认「点在遮罩或关闭叉上」：内部控件的事件会冒泡到这里，
                 // 但那时 event.target 是控件自己。
+                if (event.target === overlay || event.target.closest('.sync-dialog-close')) return this.closeSyncDialog();
                 const id = event.target.id;
-                const action = event.target.dataset ? event.target.dataset.action : '';
-                if (action === 'close' || id === 'syncClose') return this.closeSyncDialog();
                 if (id === 'syncBack') { this.syncProof = null; this.syncBusy = false; return this.setSyncState(this.syncConnection ? 'connected' : 'disconnected'); }
                 // 停止同步：先问一句再断（本地断开不可逆的是「要重新输口令」这一步，
                 // 云端与其他设备不受影响，所以文案要说清这两点）。
@@ -1421,7 +1423,9 @@
                 if (id === 'syncPush') return this.connectSyncSpace('local');
                 if (id === 'syncRecoveryExport') return this.exportSyncRecovery();
                 // 立即同步：先看云端有没有新内容，再把本地待上传的排出去。
-                if (id === 'syncNow') return this.syncPullCheck().then(() => { if (this.syncPending) this.scheduleSyncUpload(); });
+                // 手动同步必须有自己的忙碌态：云端没有变化时状态不变，
+                // 若只靠 setSyncStatus 重绘，点下去会毫无反馈。
+                if (id === 'syncNow') return this.runManualSync();
                 if (id === 'syncConflictExport') return this.exportSyncConflict();
                 if (id === 'syncConflictCloud') return this.resolveSyncConflict('cloud');
                 if (id === 'syncConflictLocal') return this.resolveSyncConflict('local');
@@ -1436,7 +1440,7 @@
                 }
             });
             this.renderSyncDialog();
-            const first = overlay.querySelector('input, button');
+            const first = overlay.querySelector('#syncDialogBody input, #syncDialogBody button');
             if (first) first.focus();
         }
 
@@ -1445,6 +1449,22 @@
             // 口令与证明只服务于这次流程，关掉即弃。
             this.syncProof = null;
             this.syncSpaceInfo = null;
+        }
+
+        /** 手动同步：忙碌态由按钮自己承担，云端无变化时也能看见反馈。 */
+        async runManualSync() {
+            if (this.syncBusy || !this.syncConnection) return;
+            this.syncBusy = true;
+            this.setSyncState('connected');
+            try {
+                await this.syncPullCheck();
+                if (this.syncPending) this.scheduleSyncUpload();
+            } finally {
+                this.syncBusy = false;
+                // 同步过程中可能被服务端判成暂停/停用，此时也必须重绘，
+                // 否则「重试同步」会一直停在忙碌态的禁用状态。
+                if (this.syncDialogEl) this.renderSyncDialog();
+            }
         }
 
         renderSyncDialog() {
@@ -1479,9 +1499,8 @@
                     ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                     <p class="sync-hint">其他设备用同一口令连接，本机修改自动同步。</p>
                     <div class="ui-dialog-actions sync-actions">
-                        <button type="button" class="btn" id="syncStop">停止同步</button>
-                        <button type="button" class="btn" id="syncNow">立即同步</button>
-                        <button type="button" class="btn btn-primary" id="syncClose">关闭</button>
+                        <button type="button" class="btn" id="syncStop" ${this.syncBusy ? 'disabled' : ''}>停止同步</button>
+                        <button type="button" class="btn" id="syncNow" ${this.syncBusy ? 'disabled' : ''} aria-busy="${this.syncBusy ? 'true' : 'false'}">${this.syncBusy ? '<span class="sync-spinner" aria-hidden="true"></span>同步中…' : '立即同步'}</button>
                     </div>
                     <p class="sync-note sync-danger-zone"><button type="button" class="sync-link" id="syncResetDevices">撤销全部旧设备并重新连接</button><br>其他设备会立刻停止同步，需要重新输入口令才能再连；本机导航与云端内容都不动。</p>`;
                 return;
@@ -1503,7 +1522,6 @@
                     <div class="ui-dialog-actions sync-actions">
                         <button type="button" class="btn" id="syncStop">停止同步</button>
                         <button type="button" class="btn btn-primary" id="syncRetry" ${this.syncBusy ? 'disabled' : ''}>重试同步</button>
-                        <button type="button" class="btn" id="syncClose">关闭</button>
                     </div>`;
                 return;
             }
@@ -1573,7 +1591,6 @@
                     <p class="sync-hint">知道口令的人都能读写这个空间，口令遗失无法找回。</p>
                 ${this.syncError ? `<p class="sync-error" role="alert">${this.esc(this.syncError)}</p>` : ''}
                 <div class="ui-dialog-actions sync-actions">
-                    <button type="button" class="btn" id="syncClose">取消</button>
                     <button type="button" class="btn btn-primary" id="syncCheck" ${disabled}>${this.syncBusy ? '检查中…' : '检查并连接'}</button>
                 </div>`;
         }

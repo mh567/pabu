@@ -340,7 +340,10 @@ test('停止同步的控件在对话框里，用户侧不提供删除云端空�
     const dialog = methodBodyOf(cleanApp, 'renderSyncDialog');
     // 连接态：停止同步是普通按钮，撤销设备单独落在危险区。
     assert.match(dialog, /id="syncStop"/, '连接态有「停止同步」');
-    assert.ok(dialog.indexOf('sync-danger-zone') > dialog.indexOf('id="syncClose"'), '危险区落在按钮行**下方**，不占主操作位');
+    assert.ok(dialog.indexOf('sync-danger-zone') > dialog.indexOf('id="syncNow"'), '危险区落在按钮行**下方**，不占主操作位');
+    assert.doesNotMatch(dialog, /id="syncClose"/, '主操作区不再放等宽的关闭按钮');
+    assert.match(methodBodyOf(cleanApp, 'openSyncDialog'), /class="sync-dialog-close" id="syncClose"/,
+        '关闭改为弹窗右上角一个叉');
     assert.match(dialog, /id="syncStopConfirm"[^>]*>[\s\S]{0,80}确认停止同步/, '确认按钮的文案说清它做什么');
     assert.match(dialog, /id="syncStopBack"/);
     // 删除只保留在管理端：用户误删会连带清掉其他设备看到的内容。
@@ -354,6 +357,16 @@ test('#9 的交互都接在对话框的点击委托上，没有孤儿控件', ()
         assert.match(open, new RegExp(`id === '${id}'`), `${id} 要有处理分支`);
     }
     assert.doesNotMatch(open, /syncDelete/, '删除相关的交互分支已移除');
+});
+
+test('立即同步有独立的忙碌反馈，不依赖同步状态变化才重绘', () => {
+    const dialog = methodBodyOf(cleanApp, 'renderSyncDialog');
+    assert.match(dialog, /id="syncNow"[^>]*aria-busy/, '按钮要表达忙碌态');
+    assert.match(dialog, /sync-spinner/, '忙碌时有可见的转圈');
+    const manual = methodBodyOf(cleanApp, 'runManualSync');
+    assert.match(manual, /this\.syncBusy = true/, '点击后先进入忙碌态');
+    assert.match(manual, /setSyncState\('connected'\)/, '忙碌态要立即重绘按钮');
+    assert.match(methodBodyOf(cleanApp, 'openSyncDialog'), /id === 'syncNow'[\s\S]{0,40}runManualSync/, '点击委托接到合并后的手动同步');
 });
 
 test('停止同步：清凭据与递增代次在**同一次**落盘里，随后才尽力撤销令牌', () => {
@@ -384,7 +397,7 @@ test('停用有自己的对话框状态与重试入口（不能落到「重新�
     assert.match(halted, /id="syncRetry"/, '要有「重试同步」');
     assert.match(halted, /本机导航不受影响/, '要说明本机导航不受影响');
     assert.match(halted, /id="syncStop"/, '也要能直接停止');
-    assert.match(halted, /id="syncClose"/, '也要能关掉');
+    assert.doesNotMatch(halted, /id="syncClose"/, '关闭不占主操作位，统一走右上角的叉');
     assert.match(methodBodyOf(cleanApp, 'openSyncDialog'), /id === 'syncRetry'[\s\S]{0,60}retrySyncAfterHalt/, '重试要接线');
 });
 

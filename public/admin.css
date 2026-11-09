@@ -1144,6 +1144,15 @@
    styles.css ≤768px 块里的安全区规则）。复用现成类，别在别处另立门户。 */
 
 .sync-dialog-body { min-height: 0; }
+/* 关闭只保留右上角一个叉：主操作区不再放等宽的「关闭」按钮，
+    免得它和「停止同步 / 立即同步」抢同一行的视觉重量。 */
+.sync-dialog { position: relative; }
+.sync-dialog h3 { padding-right: 34px; }
+.sync-dialog-close { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; transition: background 140ms, color 140ms, border-color 140ms, transform 140ms; }
+.sync-dialog-close svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; pointer-events: none; }
+.sync-dialog-close:hover { color: var(--text); border-color: var(--border); background: var(--bg-hover); }
+.sync-dialog-close:active { transform: scale(.92); }
+.sync-dialog-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sync-state { margin: 0 0 8px; color: var(--text); font-size: 14px; font-weight: 600; }
 .sync-state code { padding: 1px 5px; border-radius: 5px; background: var(--admin-row); font-size: 12px; font-weight: 500; }
 .sync-note { margin: 0 0 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
@@ -1154,7 +1163,10 @@
    靠右的按钮（实测「导出两边 / 采用云端 / 保留本机」三个在 400px 对话框里会换行，
    第一版换行后那个按钮只占半行，看着像排版坏了）。 */
 .sync-actions { flex-wrap: wrap; }
-.sync-actions .btn { flex: 1 1 auto; }
+.sync-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 1 1 auto; }
+.sync-spinner { width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: sync-spin .7s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-spinner { animation: none; } }
 .sync-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
 .sync-link:hover { color: var(--accent-hover); }
 /* 危险区：撤销全部旧设备会踢掉其他设备，所以它不占按钮行，单独落在分隔线下面。 */
@@ -1248,6 +1260,8 @@ tr.sync-space-row.is-gone td { color: var(--text-secondary); text-decoration: li
    按指针类型补一档，桌面窄窗口（细指针）不受影响。 */
 @media (pointer: coarse) {
     :is(.modal, .fav-dialog, .ui-dialog) .btn-sm { min-height: 44px; }
+    .sync-dialog-close { top: 4px; right: 4px; width: 44px; height: 44px; }
+    .sync-dialog h3 { padding-right: 44px; }
     .sync-toolbar .admin-select .local-select-button { min-height: 44px; }
     .sync-invite-row input[type="checkbox"],
     .sync-table input[type="checkbox"] { min-width: 22px; min-height: 22px; }
