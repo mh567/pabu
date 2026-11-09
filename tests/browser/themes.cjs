@@ -83,6 +83,10 @@ test('browser: first visit uses prism and the top dropdown persists explicit cho
     await trigger.click();
     await menu.waitFor({ state: 'visible' });
     await page.waitForFunction(() => document.querySelector('#homeThemeSwitcherTrigger')?.getAttribute('aria-expanded') === 'true');
+    const menuBox = await menu.boundingBox();
+    const triggerBox = await trigger.boundingBox();
+    assert.ok(Math.abs(menuBox.width - triggerBox.width) <= 1,
+        `主题菜单应与触发按钮等宽，实际 ${menuBox.width} / ${triggerBox.width}`);
     assert.equal(await page.locator('[data-home-theme="prism"]').getAttribute('aria-selected'), 'true');
     await page.locator('[data-home-theme="classic"]').click();
     await menu.waitFor({ state: 'hidden' });

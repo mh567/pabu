@@ -3055,7 +3055,7 @@
                 if (trigger.disabled) return;
                 document.querySelectorAll('.local-select-menu:popover-open').forEach(other => other.hidePopover());
                 const rect = trigger.getBoundingClientRect();
-                const width = Math.min(Math.max(rect.width, 132), innerWidth - 24);
+                const width = Math.min(rect.width, innerWidth - 24);
                 menu.style.width = `${width}px`;
                 menu.style.left = `${Math.max(12, Math.min(rect.right - width, innerWidth - width - 12))}px`;
                 const below = innerHeight - rect.bottom - 12;
