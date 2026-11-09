@@ -71,26 +71,36 @@ test('browser: 访客主题真实保存、取消、重载、离线回访与经�
     await appearance(page, 'classic', 'light');
 });
 
-test('browser: first visit uses prism and the top shortcut persists explicit choices', async t => {
+test('browser: first visit uses prism and the top dropdown persists explicit choices', async t => {
     const { page } = await fixture(t);
     await appearance(page, 'prism', 'dark');
-    const classic = page.locator('[data-home-theme="classic"]');
-    const prism = page.locator('[data-home-theme="prism"]');
-    assert.equal(await prism.getAttribute('aria-pressed'), 'true');
-    const box = await prism.boundingBox();
+    const trigger = page.locator('#homeThemeSwitcherTrigger');
+    const menu = page.locator('#homeThemeSwitcherMenu');
+    assert.equal((await trigger.textContent()).trim(), '棱镜');
+    const box = await trigger.boundingBox();
     const search = await page.locator('#searchForm').boundingBox();
     assert.ok(box.y + box.height <= search.y);
-    await classic.click();
+    await trigger.click();
+    await menu.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.querySelector('#homeThemeSwitcherTrigger')?.getAttribute('aria-expanded') === 'true');
+    assert.equal(await page.locator('[data-home-theme="prism"]').getAttribute('aria-selected'), 'true');
+    await page.locator('[data-home-theme="classic"]').click();
+    await menu.waitFor({ state: 'hidden' });
     await page.waitForFunction(() => !window.app.themeStyleSaving);
+    await appearance(page, 'classic', 'auto');
     await page.reload();
     await appearance(page, 'classic', 'auto');
-    await prism.focus();
+    await trigger.focus();
     await page.keyboard.press('Enter');
-    await appearance(page, 'prism', 'dark');
+    await menu.waitFor({ state: 'visible' });
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await menu.waitFor({ state: 'hidden' });
     await page.waitForFunction(() => !window.app.themeStyleSaving);
+    await appearance(page, 'prism', 'dark');
     await page.locator('#layoutBtn').click();
-    assert.equal(await classic.isDisabled(), true);
+    assert.equal(await trigger.isDisabled(), true);
     await page.locator('#localCancelBtn').click();
     await page.locator('#localNavigationTools').waitFor({ state: 'hidden' });
-    assert.equal(await classic.isEnabled(), true);
+    assert.equal(await trigger.isEnabled(), true);
 });

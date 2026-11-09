@@ -2271,21 +2271,33 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    窄屏背板没有上内边距（≤1023px 全部清零），绝对定位会压到搜索框，
    那时退回常规流里的一行。 */
 .home-theme-toolbar { position: absolute; top: 4px; right: 30px; display: flex; justify-content: flex-end; margin: 0; }
-.home-theme-switcher { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: linear-gradient(165deg,var(--control-pressed-top),var(--control-pressed-bottom)); }
-.home-theme-switcher button { min-width: 68px; min-height: 32px; padding: 5px 15px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms,color 160ms,border-color 160ms; }
-.home-theme-switcher button:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
-.home-theme-switcher button[aria-pressed="true"] { color: var(--text); border-color: var(--border); background: linear-gradient(165deg,var(--control-top),var(--control-bottom)); box-shadow: inset 0 1px var(--inner-light,transparent),0 2px 4px -2px var(--inner-dark,transparent); }
-.home-theme-switcher button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
-.home-theme-switcher button:disabled { opacity: .5; cursor: not-allowed; }
+/* 当前主题 + 向下展开的菜单。触发按钮沿用控件渐变与胶囊形态；
+    菜单复用 .local-select-menu 的材质、定位与入场动画，主题增多时只多几行选项。 */
+.home-theme-switcher { display: inline-flex; }
+.home-theme-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 88px; min-height: 32px; padding: 5px 11px 5px 15px; border: 1px solid var(--border); border-radius: 999px; background: linear-gradient(165deg,var(--control-top),var(--control-bottom)); color: var(--text); box-shadow: inset 0 1px var(--inner-light,transparent),0 2px 4px -2px var(--inner-dark,transparent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms,border-color 160ms,box-shadow 160ms; }
+.home-theme-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-theme-trigger svg { flex: none; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 220ms cubic-bezier(.16,1,.3,1); }
+.home-theme-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+.home-theme-trigger:hover:not(:disabled),.home-theme-trigger[aria-expanded="true"] { border-color: var(--focus); background: linear-gradient(165deg,var(--control-hover-top),var(--control-hover-bottom)); }
+.home-theme-trigger:active:not(:disabled) { box-shadow: var(--press-shadow); }
+.home-theme-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.home-theme-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.home-theme-menu { min-width: 132px; }
 @media (max-width: 1023px) { .home-theme-toolbar { position: static; margin: 0 0 20px; } }
 /* 触控目标下限按**指针类型**判，不按屏幕宽度。
-   折叠屏内屏（673/820/884）与平板都是手指在点，但都宽于 600px；
-   只写 max-width 的话它们的页脚链接只有 30px、主题按钮 32px，低于 44px 下限。
-   桌面窄窗口（细指针）不受影响，仍是紧凑尺寸。 */
+    折叠屏内屏（673/820/884）与平板都是手指在点，但都宽于 600px；
+    只写 max-width 的话它们的页脚链接只有 30px、主题按钮 32px，低于 44px 下限。
+    桌面窄窗口（细指针）不受影响，仍是紧凑尺寸。 */
 @media (pointer: coarse) {
     /* 宽高都要到 44：只有高度够、宽度 40px 的「说明 / 同步 / 编辑」实测仍判不可点。 */
     .site-footer-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 8px; }
-    .home-theme-switcher button { min-height: 44px; min-width: 72px; }
+    .home-theme-trigger { min-height: 44px; min-width: 88px; }
+    .home-theme-menu [role="option"] { min-height: 44px; }
 }
-@media (max-width: 600px) { .home-theme-switcher button { min-height: 44px; min-width: 72px; } }
-@media (prefers-reduced-motion: reduce) { .home-theme-switcher button { transition: none; } }
+@media (max-width: 600px) {
+    .home-theme-trigger { min-height: 44px; min-width: 88px; }
+    .home-theme-menu [role="option"] { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .home-theme-trigger,.home-theme-trigger svg { transition: none; }
+}

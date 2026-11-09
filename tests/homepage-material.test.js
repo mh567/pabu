@@ -1434,10 +1434,10 @@ test('触控目标按指针类型补齐，折叠屏内屏不受宽度断点漏�
         '粗指针设备底栏入口 44px 高');
     assert.match(coarse, /\.site-footer-link \{[^}]*min-width:\s*44px/,
         '宽度也要到 44px：只有高度够时实测仍判为不可点');
-    assert.match(coarse, /\.home-theme-switcher button \{[^}]*min-height:\s*44px/,
+    assert.match(coarse, /\.home-theme-trigger \{[^}]*min-height:\s*44px/,
         '粗指针设备主题按钮 44px');
     // 细指针桌面窄窗口不该被这条撑高：max-width 那档只保留主题按钮。
-    const narrow = mediaBlock(fullCode, '@media (max-width: 600px)', '.home-theme-switcher button');
+    const narrow = mediaBlock(fullCode, '@media (max-width: 600px)', '.home-theme-trigger');
     assert.doesNotMatch(narrow, /\.site-footer-link/, '≤600px 不重复声明底栏，交给粗指针那条');
 });
 

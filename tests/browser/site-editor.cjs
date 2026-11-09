@@ -77,8 +77,10 @@ test('browser: Site tab embeds a one-to-one canvas and no longer links to the ho
     assert.equal(await page.locator('#siteCanvas .backboard').count(), 1, '使用首页同一套背板结构');
     assert.equal(await page.locator('#siteCanvas .search-caption').count(), 1, '画布包含搜索说明');
     assert.equal(await page.locator('#siteCanvas .site-footer').count(), 1, '画布包含页脚');
-    assert.equal(await page.locator('#siteThemeSwitcher button').count(), 2, '画布包含主题快捷入口');
+    assert.equal(await page.locator('#siteThemeSwitcher .home-theme-trigger').count(), 1, '画布包含主题快捷入口');
+    assert.equal(await page.locator('#siteThemeSwitcher [role="option"]').count(), 2, '菜单列出全部主题');
 
+    await page.locator('#siteThemeSwitcherTrigger').click();
     await page.locator('#siteThemeSwitcher [data-site-theme="classic"]').click();
     await page.waitForFunction(() => document.documentElement.dataset.themeStyle === 'classic');
     assert.equal(await page.locator('#themeStyleSelect').evaluate(el => el.value), 'classic', '画布主题与设置同步');

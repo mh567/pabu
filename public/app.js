@@ -2890,7 +2890,7 @@
             this.setLocalStatus(this.localError || '仅保存在本机', !!this.localError);
             window.addEventListener('resize', () => this.closeLocalSelects());
             document.addEventListener('pointerdown', event => {
-                if (!event.target.closest?.('.local-select')) this.closeLocalSelects();
+                if (!event.target.closest?.('.local-select, .home-theme-switcher')) this.closeLocalSelects();
             }, true);
             window.addEventListener('scroll', event => {
                 if (!event.target.closest?.('.local-select-menu')) {
@@ -2988,19 +2988,127 @@
         renderHomeThemeSwitcher() {
             const host = $('#homeThemeSwitcher');
             if (!host || !this.config) return;
-            const style = window.NavigationSchema.appearance(this.config).style;
             const disabled = this.editLayout || this.themeStyleSaving;
             host.setAttribute('aria-busy', String(!!this.themeStyleSaving));
-            if (!host.children.length) host.innerHTML = Object.entries(window.NavigationSchema.THEMES).map(([id, item]) =>
-                `<button type="button" data-home-theme="${id}" aria-label="${this.esc(item.name)}主题">${this.esc(item.name)}</button>`).join('');
-            for (const button of host.children) {
-                button.setAttribute('aria-pressed', String(button.dataset.homeTheme === style));
-                button.disabled = !!disabled;
-                button.title = disabled ? '请先完成当前编辑或保存' : `切换为${window.NavigationSchema.THEMES[button.dataset.homeTheme].name}主题`;
-            }
+            this.renderThemeDropdown(host, {
+                style: window.NavigationSchema.appearance(this.config).style,
+                disabled,
+                disabledTitle: '请先完成当前编辑或保存',
+                optionAttr: 'data-home-theme',
+                onSelect: id => this.setThemeStyle(id)
+            });
             // 这里不再重量模块区顶端：主题入口在宽屏是绝对定位，在窄屏是常规流的
             // 一行，而窄屏模块区本就回到文档流、不参与定位，两种情况都不会挪动
             // 搜索框。顶线的重量在 renderModuleZone 与 resize 两处。
+        }
+
+        /**
+         * 主题入口统一为「当前主题 + 向下菜单」。主题数量后续只会在
+         * NavigationSchema.THEMES 里增加，菜单按注册表生成，新增主题无需改结构。
+         * 首页快捷入口与后台画布共用这一个组件。
+         */
+        renderThemeDropdown(host, { style, disabled = false, disabledTitle = '切换视觉主题', optionAttr, onSelect }) {
+            if (!host.children.length) {
+                host.innerHTML = `
+                    <button type="button" class="home-theme-trigger" id="${host.id}Trigger" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${host.id}Menu" aria-label="视觉主题">
+                        <span class="home-theme-trigger-label" id="${host.id}Value"></span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                    </button>
+                    <div class="local-select-menu home-theme-menu" id="${host.id}Menu" popover="manual" role="listbox" aria-labelledby="${host.id}Value">
+                        ${Object.entries(window.NavigationSchema.THEMES).map(([id, item], index) =>
+                            `<button type="button" role="option" tabindex="-1" id="${host.id}Option-${id}" data-theme-option="${id}" ${optionAttr}="${id}" style="--option-index:${index}" aria-selected="false"><span>${this.esc(item.name)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>`).join('')}
+                    </div>`;
+                this.bindThemeDropdown(host);
+            }
+            host._themeSelect = onSelect;
+            const trigger = host.querySelector('.home-theme-trigger');
+            trigger.querySelector('.home-theme-trigger-label').textContent = window.NavigationSchema.THEMES[style]?.name || '';
+            trigger.disabled = !!disabled;
+            trigger.title = disabled ? disabledTitle : '切换视觉主题';
+            for (const option of host.querySelectorAll('[role="option"]')) {
+                option.setAttribute('aria-selected', String(option.dataset.themeOption === style));
+                option.disabled = !!disabled;
+            }
+        }
+
+        bindThemeDropdown(host) {
+            const trigger = host.querySelector('.home-theme-trigger');
+            const menu = host.querySelector('.home-theme-menu');
+            const options = () => [...menu.children];
+            const selectedIndex = () => Math.max(0, options().findIndex(option => option.getAttribute('aria-selected') === 'true'));
+            const highlight = index => {
+                const list = options();
+                list.forEach((option, i) => option.classList.toggle('is-active', i === index));
+                trigger.setAttribute('aria-activedescendant', list[index]?.id || '');
+                const option = list[index];
+                if (!option) return;
+                const top = option.offsetTop;
+                const bottom = top + option.offsetHeight;
+                if (top < menu.scrollTop) menu.scrollTop = top;
+                else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
+            };
+            const close = (restoreFocus = false) => {
+                if (menu.matches(':popover-open')) menu.hidePopover();
+                if (restoreFocus) trigger.focus({ preventScroll: true });
+            };
+            const open = () => {
+                if (trigger.disabled) return;
+                document.querySelectorAll('.local-select-menu:popover-open').forEach(other => other.hidePopover());
+                const rect = trigger.getBoundingClientRect();
+                const width = Math.min(Math.max(rect.width, 132), innerWidth - 24);
+                menu.style.width = `${width}px`;
+                menu.style.left = `${Math.max(12, Math.min(rect.right - width, innerWidth - width - 12))}px`;
+                const below = innerHeight - rect.bottom - 12;
+                const above = rect.top - 12;
+                const upward = below < 180 && above > below;
+                menu.style.maxHeight = `${Math.max(44, Math.min(272, upward ? above - 8 : below - 8))}px`;
+                menu.style.top = upward ? 'auto' : `${rect.bottom + 6}px`;
+                menu.style.bottom = upward ? `${innerHeight - rect.top + 6}px` : 'auto';
+                menu.style.transformOrigin = upward ? 'bottom right' : 'top right';
+                menu.dataset.openedAt = String(performance.now());
+                menu.showPopover();
+                highlight(selectedIndex());
+            };
+            trigger.onclick = () => menu.matches(':popover-open') ? close() : open();
+            trigger.onkeydown = event => {
+                const expanded = menu.matches(':popover-open');
+                if (event.key === 'Escape' && expanded) {
+                    event.preventDefault(); event.stopPropagation(); close(true); return;
+                }
+                if (event.key === 'Tab') { if (expanded) close(); return; }
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(event.key)) return;
+                event.preventDefault();
+                if (!expanded) { open(); return; }
+                const list = options();
+                const current = list.findIndex(option => option.classList.contains('is-active'));
+                if (event.key === 'Enter' || event.key === ' ') {
+                    const option = list[current];
+                    if (option && !option.disabled) { close(true); host._themeSelect?.(option.dataset.themeOption); }
+                    return;
+                }
+                const next = event.key === 'Home' ? 0
+                    : event.key === 'End' ? list.length - 1
+                    : Math.max(0, Math.min(list.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1)));
+                highlight(next);
+            };
+            menu.addEventListener('toggle', () => {
+                const expanded = menu.matches(':popover-open');
+                trigger.setAttribute('aria-expanded', String(expanded));
+                if (!expanded) {
+                    trigger.removeAttribute('aria-activedescendant');
+                    options().forEach(option => option.classList.remove('is-active'));
+                }
+            });
+            menu.onclick = event => {
+                const option = event.target.closest('[role="option"]');
+                if (!option || option.disabled) return;
+                close(true);
+                host._themeSelect?.(option.dataset.themeOption);
+            };
+            document.addEventListener('pointerdown', event => {
+                if (host.contains(event.target)) return;
+                close();
+            }, true);
         }
 
         async setThemeStyle(style) {
@@ -3022,7 +3130,7 @@
             } finally {
                 this.themeStyleSaving = false;
                 this.renderHomeThemeSwitcher();
-                $('#homeThemeSwitcher')?.querySelector(`[data-home-theme="${window.NavigationSchema.appearance(this.config).style}"]`)?.focus({ preventScroll: true });
+                $('#homeThemeSwitcherTrigger')?.focus({ preventScroll: true });
             }
         }
 
@@ -3265,10 +3373,6 @@
             };
             $('#layoutBtn').onclick = () => this.toggleEditLayout();
             this.syncFooterEntries();
-            $('#homeThemeSwitcher').onclick = event => {
-                const button = event.target.closest('[data-home-theme]');
-                if (button && !button.disabled) this.setThemeStyle(button.dataset.homeTheme);
-            };
             document.addEventListener('keydown', event => {
                 if (event.key !== 'Escape' || !this.editLayout || $('.ui-dialog-overlay')) return;
                 event.preventDefault(); this.cancelEditSession();
@@ -4144,20 +4248,17 @@
         renderSiteThemeSwitcher() {
             const host = $('#siteThemeSwitcher');
             if (!host || !this.siteConfig) return;
-            const style = window.NavigationSchema.appearance(this.siteConfig).style;
-            if (!host.children.length) host.innerHTML = Object.entries(window.NavigationSchema.THEMES).map(([id, item]) =>
-                `<button type="button" data-site-theme="${id}" aria-label="${this.esc(item.name)}主题">${this.esc(item.name)}</button>`).join('');
-            for (const button of host.children) {
-                const active = button.dataset.siteTheme === style;
-                button.setAttribute('aria-pressed', String(active));
-                button.onclick = () => {
-                    this.siteConfig.themeStyle = button.dataset.siteTheme;
+            this.renderThemeDropdown(host, {
+                style: window.NavigationSchema.appearance(this.siteConfig).style,
+                optionAttr: 'data-site-theme',
+                onSelect: id => {
+                    this.siteConfig.themeStyle = id;
                     this.applySitePreviewTheme();
                     this.renderSiteThemeSwitcher();
                     this.renderSiteControls();
                     this.markConfigDirty();
-                };
-            }
+                }
+            });
         }
 
         renderSiteEditor() {
