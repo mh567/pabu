@@ -16,6 +16,24 @@
             );
         },
 
+        // 一期服务器中转文件仍用单词取件码派生 AES-GCM 密钥。
+        // 取件页 public/file.html 的 deriveKey 使用同一组 PBKDF2 参数，
+        // 两边必须逐字一致。文本分享 v2 改造时删掉过这里，
+        // 结果是实时直连失败回退中转时上传直接抛 Crypto.deriveKey is not a function。
+        async deriveKey(code) {
+            const enc = new TextEncoder();
+            const material = await crypto.subtle.importKey(
+                'raw', enc.encode(code + '-pabu-e2e'), 'PBKDF2', false, ['deriveKey']
+            );
+            return crypto.subtle.deriveKey(
+                { name: 'PBKDF2', salt: enc.encode('pabu-paste-v2'), iterations: 100000, hash: 'SHA-256' },
+                material,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        },
+
         async encryptWithCode(text, code) {
             const key = await this.importShareKey(code);
             const enc = new TextEncoder();
@@ -4724,6 +4742,9 @@
             }
 
             const TTL_LABELS = { 5: '5 分钟', 30: '30 分钟', 1440: '1 天', 10080: '7 天' };
+            // 直连失败回退中转时，上传可能要几分钟，默认 5 分钟太紧；
+            // 文件失效时间从上传播开始算，接收方还没下载就可能过期。
+            const defaultTtl = typeof notifyRelay === 'function' ? 30 : 5;
             const result = await this.showUiDialog({
                 title: '分享文件',
                 message: `${file.name} · ${this.formatBytes(file.size)}`,
@@ -4733,12 +4754,12 @@
                 groups: [
                     {
                         label: '有效期',
-                        options: Object.entries(TTL_LABELS).map(([minutes, label], index) => ({
+                        options: Object.entries(TTL_LABELS).map(([minutes, label]) => ({
                             kind: 'radio',
                             name: 'ttl',
                             value: minutes,
                             label,
-                            checked: index === 0
+                            checked: Number(minutes) === defaultTtl
                         }))
                     }
                 ],

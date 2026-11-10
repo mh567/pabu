@@ -111,6 +111,7 @@
             this.started = false;
             this.transferring = false;
             this.fallbackActive = false;
+            this.fallbackPending = false;
             this.peerJoined = false;
             this.sas = '';
 
@@ -394,6 +395,9 @@
             if (event === 'expired') return this.onRoomGone(Object.assign(new Error('取件码已过期'), { status: 410 }));
             if (event === 'overflow') return this.onRoomGone(Object.assign(new Error('信令过多，会话已结束'), { status: 410 }));
             if (event === 'relay-pending' && this.mode === 'receive') {
+                // 发送方关闭 DataChannel 也会触发 onclose/onConnectionFailed。
+                // 记住中转已在路上，避免断线错误把「正在改用中转」覆盖掉。
+                this.fallbackPending = true;
                 this.paint({
                     file: this.incoming,
                     status: '直连不可用，发送方正在改用服务器中转…',
@@ -482,7 +486,7 @@
             channel.onopen = () => this.onChannelOpen();
             channel.onmessage = event => this.onChannelMessage(event.data);
             channel.onclose = () => {
-                if (this.closed || this.finished) return;
+                if (this.closed || this.finished || this.fallbackPending) return;
                 if (this.mode === 'receive') {
                     this.onConnectionFailed('连接已断开，请让发送方重新分享');
                 }
@@ -626,18 +630,27 @@
             if (!this.dc || this.dc.bufferedAmount < BUFFER_HIGH) return;
             await new Promise(resolve => {
                 let settled = false;
+                let pollTimer = null;
                 const channel = this.dc;
                 const finish = () => {
                     if (settled) return;
                     settled = true;
-                    clearTimeout(timer);
+                    clearTimeout(timeoutTimer);
+                    clearInterval(pollTimer);
                     channel.removeEventListener('bufferedamountlow', finish);
                     channel.removeEventListener('close', finish);
                     resolve();
                 };
-                const timer = setTimeout(finish, 5000);
+                const check = () => {
+                    // 监听器挂上时缓冲可能已经降到阈值以下，浏览器不会再补发
+                    // bufferedamountlow；少这一次复查就会一直等到 5 秒超时。
+                    if (!channel || channel.readyState !== 'open' || channel.bufferedAmount <= BUFFER_LOW) finish();
+                };
                 channel.addEventListener('bufferedamountlow', finish);
                 channel.addEventListener('close', finish);
+                const timeoutTimer = setTimeout(finish, 5000);
+                pollTimer = setInterval(check, 50);
+                check();
             });
         }
 
@@ -681,6 +694,9 @@
             this.transferActive(false);
             this.releaseWakeLock();
             if (this.closed) return;
+            // 接收方已经收到 relay-pending：断线是发送方主动切中转造成的，
+            // 不要把等待取件码的界面改成错误。
+            if (this.mode === 'receive' && this.fallbackPending) return;
             if (this.mode === 'send') {
                 this.paint({
                     file: this.file,
@@ -708,10 +724,12 @@
             if (this.mode !== 'send' || this.fallbackActive) return;
             this.fallbackActive = true;
             this.clearIceTimer();
-            this.closePeer();
             this.transferActive(false);
             this.releaseWakeLock();
+            // 先让接收方进入「等待中转」状态，再断开 DataChannel。
+            // 反过来做会让接收端先收到断线事件，界面上闪一下错误。
             await this.sendControl('relay-pending');
+            this.closePeer();
             this.removeOverlay();
             if (typeof this.options.onFallback !== 'function') {
                 this.toast('当前页面无法启动服务器中转', 'error');
@@ -748,6 +766,7 @@
             this.started = false;
             this.transferring = false;
             this.fallbackActive = false;
+            this.fallbackPending = false;
             this.peerJoined = false;
             this.sas = '';
             this.after = 0;

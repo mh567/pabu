@@ -21,5 +21,8 @@ test('the browser generates the key and encrypts before sending it to the sharin
     assert.match(app, /await ShareCode\.deriveId\(code\)/);
     assert.match(app, /await ShareCode\.deriveProof\(code\)/);
     assert.equal(app.includes("fetch('/api/p/code'"), false);
-    assert.equal(/PBKDF2/.test(app), false, '浏览器端不再从短码派生密钥');
+    // 文本分享 v2 不再从短码派生密钥；文件中转仍需要 PBKDF2，
+    // 它的参数与取件页一致，由 rtc-ui 与浏览器回退用例单独覆盖。
+    const textPath = app.slice(app.indexOf('async createPaste'), app.indexOf('showPasteResult'));
+    assert.equal(/PBKDF2/.test(textPath), false, '文本分享 v2 不再从短码派生密钥');
 });

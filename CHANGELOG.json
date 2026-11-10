@@ -1,6 +1,25 @@
 {
   "versions": [
     {
+      "version": "0.8.1",
+      "releaseDate": "2026-11-10",
+      "summary": "修复直连失败回退中转的上传报错，并消除背压等待造成的长时间停顿。",
+      "highlights": [
+        "直连失败改用服务器中转时不再抛 Crypto.deriveKey is not a function，文件可以正常加密上传。",
+        "回退中转的默认有效期改为 30 分钟，慢速上传后接收方仍有时间下载。",
+        "接收方收到 relay-pending 后不会被 DataChannel 断线错误覆盖。",
+        "背压等待改为监听器挂上后立即复查并每 50 毫秒轮询，避免漏事件导致最长 5 秒停顿。"
+      ],
+      "changes": [
+        "在 public/app.js 恢复与 public/file.html 一致的 PBKDF2 文件密钥派生。",
+        "发送方先发 relay-pending 再断开 DataChannel；接收端用 fallbackPending 忽略主动断线。",
+        "waitForBuffer 增加立即复查与 50ms 轮询，保留 5 秒超时作为兜底。",
+        "新增 tests/browser/rtc-fallback.cjs 浏览器回退闭环，并补充密钥派生与背压源码守卫。",
+        "调整文本分享 v2 的 PBKDF2 断言，只约束文本分享路径。",
+        "Service Worker 缓存更新至 pabu-v24。"
+      ]
+    },
+    {
       "version": "0.8.0",
       "releaseDate": "2026-11-09",
       "summary": "新增 5 位码实时传文件，文件走 WebRTC 直连，直连失败可回退服务器中转。",

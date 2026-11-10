@@ -67,6 +67,11 @@
 - 代码审查后修正：发送与轮询先验会话令牌再按 IP 限流；待取队列增加 256 KiB 字节上限；接收方离开时清空旧信令、旧队列和挂起轮询；TURN 改为按密钥现算短期凭据，不再下发静态用户名密码；触控目标改按 `pointer: coarse`；5 位码判断收敛到 `ShareCode.isRtcCode`。
 - 修复数据通道 meta 消息的字段冲突：原先同一对象里写了两个 `type`，MIME 覆盖了消息类型，接收端把文件头当未知消息丢掉；现在消息类型用 `type`，MIME 用 `mime`。该问题由真实双浏览器闭环发现。
 - 版本推进到 `0.8.0`，二期 5 位码实时传文件发布。
+- 修复直连失败回退服务器中转时的上传报错：文本分享 v2 改造删掉了浏览器端的 `Crypto.deriveKey`，文件中转仍调用它，实际抛出 `Crypto.deriveKey is not a function`。恢复与取件页一致的 PBKDF2 派生，并把回退中转的默认有效期从 5 分钟改为 30 分钟。
+- 接收方收到 `relay-pending` 后不再被 DataChannel 断线错误覆盖；发送方先发 `relay-pending` 再断开连接，接收端用 `fallbackPending` 忽略这次主动断线。
+- 修复背压等待漏 `bufferedamountlow` 事件的问题：监听器挂上后立即复查，并每 50 毫秒轮询一次。两个独立 Chrome 进程的 20 MiB 直连基准从最长 4.7 秒停顿提升到 36 MB/s、背压等待 0 次。
+- 新增 `tests/browser/rtc-fallback.cjs`，在浏览器里完整走一遍直连建立后切服务器中转、上传、送达取件码、接收端下载。
+- 版本推进到 `0.8.1`，回退中转报错与背压停顿修复发布。
 
 ## 验证
 
@@ -97,6 +102,7 @@
 - 本轮二期实时传文件验证：`node --test tests/*.test.js` 共 392 项通过。新增 12 项会话存储用例、5 项 HTTP 信令用例、8 项前端源码守卫和 1 项共享码用例，覆盖 5 位码创建与占用、offer/answer/候选往返、越权与超大信令拒绝、接收方离开与重新加入、离开时清空旧信令、挂起轮询释放、relay 控制链路、队列字节上限、取消后的最后一条信令、过期回收、码冲突、房间上限、CSRF、信令鉴权、加入限流、TURN 短期凭据与无密钥时跳过 TURN、5 位码类型判断、meta 消息字段、实时传输源码与 Service Worker 缓存。`node --check` 检查 `server.js`、`lib/rtc-session.js`、`public/rtc-transfer.js`、`public/app.js`、`public/share-code.js` 和 `public/sw.js` 通过。
 - 真实浏览器闭环通过：Playwright 驱动系统 Chrome，两个独立浏览器上下文完成 5 位码取件、WebRTC 直连、两端 4 位确认码一致、下载内容一致、传输结束后再次加入返回 410。该闭环同时发现并修复了 meta 消息 `type` 被 MIME 覆盖的问题。
 - 真实公网、对称 NAT、IPv6 与 TURN 仍未在外部网络验证；默认只有公共 STUN，直连失败时回退一期服务器中转。
+- 本轮回退与吞吐修复验证：`node --test tests/*.test.js` 共 394 项通过；`node --test tests/browser/rtc-fallback.cjs` 1 项通过。两个独立 Chrome 进程、20 MiB 本地直连基准 36 MB/s，发送循环背压等待 0 次。移动网络到家庭宽带的实际速率未在本地复现为代码瓶颈，需要用 `chrome://webrtc-internals` 观察选中的候选对、RTT 与可用上行带宽。
 - Pabu 项目目录内没有安装依赖；管理脚本验证在临时目录执行了 `npm ci`，测试目录已清理。Pabu 首次运行前需执行 `npm ci` 或使用 `pabu.sh install`。
 
 ## 边界
