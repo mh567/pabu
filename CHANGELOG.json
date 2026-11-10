@@ -1,6 +1,25 @@
 {
   "versions": [
     {
+      "version": "0.8.3",
+      "releaseDate": "2026-11-10",
+      "summary": "实时传文件增加链路诊断与流式落盘，并按实测结果固定吞吐配置。",
+      "highlights": [
+        "传输进度下方显示候选对类型、RTT 与实时吞吐，能直接看出走的是局域网直连、NAT 打洞还是 TURN 中继。",
+        "接收方可以在传输前或传输中选择保存位置，边收边写入磁盘，选择流式落盘时不再受接收端内存上限约束。",
+        "发送循环提前读取下一片，与当前分片发送重叠；建连启用候选池预热。",
+        "实测确认 Chrome 下 16 KiB 分片与 1 MiB 发送窗口吞吐最好，更大分片、更大窗口和更深预读都会明显变慢。"
+      ],
+      "changes": [
+        "public/rtc-transfer.js：进度区新增候选对、RTT 与按秒吞吐；接收端新增 showSaveFilePicker 流式落盘，未选择时保留内存 Blob 下载。",
+        "发送循环改为一片预读，等待缓冲的超时从 5 秒提高到 30 秒，避免慢链路把发送队列提前灌满。",
+        "RTCPeerConnection 启用 iceCandidatePoolSize: 2；分片上限继续按 sctp.maxMessageSize 夹取。",
+        "新增 tests/browser/rtc-throughput.cjs 双 Chrome 进程直连基准，页内计时分别记录发送与接收循环。",
+        "补充链路诊断、流式落盘、预读与候选池的源码守卫测试；Service Worker 缓存更新至 pabu-v27。",
+        "实测中 send(Blob) 会进入 bufferedAmount 但接收端收不到数据，已回退为预读 ArrayBuffer；更大分片与更深预读同样回退。"
+      ]
+    },
+    {
       "version": "0.8.2",
       "releaseDate": "2026-11-10",
       "summary": "导航图标默认关闭，棱镜分类标题收敛到更舒适的字号层级。",

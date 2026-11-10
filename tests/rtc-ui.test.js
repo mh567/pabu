@@ -11,6 +11,7 @@ const rtc = fs.readFileSync(path.join(root, 'public/rtc-transfer.js'), 'utf8');
 const index = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const filePage = fs.readFileSync(path.join(root, 'public/file.html'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'public/styles.css'), 'utf8');
 
 test('首页先加载实时传输模块，再启动应用', () => {
     assert.match(index, /<script src="rtc-transfer\.js"><\/script>\s*<script src="app\.js"><\/script>/);
@@ -54,8 +55,40 @@ test('实时传输模块使用 WebRTC、16 KiB 分片和背压', () => {
     assert.match(rtc, /new RTCPeerConnection\(/);
     assert.match(rtc, /createDataChannel\('pabu-file'/);
     assert.match(rtc, /CHUNK_SIZE = 16 \* 1024/);
+    assert.match(rtc, /BUFFER_HIGH = 1024 \* 1024/);
+    assert.match(rtc, /BUFFER_LOW = 256 \* 1024/);
+    assert.match(rtc, /sctp\.maxMessageSize/);
     assert.match(rtc, /bufferedAmountLowThreshold = BUFFER_LOW/);
     assert.match(rtc, /bufferedAmount < BUFFER_HIGH/);
+});
+
+test('发送循环预读分片并让读取与发送重叠', () => {
+    assert.match(rtc, /PREFETCH_DEPTH = 1/);
+    assert.match(rtc, /this\.file\.slice\(start, end\)\.arrayBuffer\(\)/);
+    assert.match(rtc, /const buffer = await queue\.shift\(\)/);
+    assert.match(rtc, /this\.dc\.send\(buffer\)/);
+});
+
+test('接收端可流式落盘并保留内存 Blob 回退', () => {
+    assert.match(rtc, /showSaveFilePicker/);
+    assert.match(rtc, /createWritable/);
+    assert.match(rtc, /writable\.write\(chunk\)/);
+    assert.match(rtc, /new Blob\(this\.receivedChunks/);
+    assert.match(rtc, /save-target/);
+});
+
+test('传输中显示候选对类型、RTT 与实时吞吐', () => {
+    assert.match(rtc, /getStats\(\)/);
+    assert.match(rtc, /selectedCandidatePairId/);
+    assert.match(rtc, /currentRoundTripTime/);
+    assert.match(rtc, /局域网直连/);
+    assert.match(rtc, /rtc-stats/);
+    assert.match(rtc, /STATS_INTERVAL_MS = 1000/);
+    assert.match(styles, /\.rtc-stats\s*\{[^}]*color: var\(--text-secondary\)/s);
+});
+
+test('对等连接启用候选池预热', () => {
+    assert.match(rtc, /iceCandidatePoolSize: 2/);
 });
 
 test('实时传输期间拦截关闭并给出持续提示', () => {
@@ -74,6 +107,6 @@ test('直连建立后显示确认码，中转回退会送达取件码', () => {
 });
 
 test('Service Worker 缓存实时传输模块', () => {
-    assert.match(sw, /const CACHE = 'pabu-v26'/);
+    assert.match(sw, /const CACHE = 'pabu-v27'/);
     assert.match(sw, /'\/rtc-transfer\.js'/);
 });

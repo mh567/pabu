@@ -872,6 +872,16 @@ body {
     transition: width 160ms ease;
 }
 
+.rtc-stats {
+    min-height: 16px;
+    margin: 2px 0 0;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--text-secondary);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
 .rtc-actions {
     display: flex;
     flex-wrap: wrap;

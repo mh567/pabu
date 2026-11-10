@@ -6,13 +6,20 @@
     //
     // 取舍：
     // · 单文件、单接收方、一次性会话。接收方离开后发送方可以等下一个接收方。
-    // · 16 KiB 分片可靠有序，用 bufferedAmount 做背压，避免灌爆 SCTP 缓冲。
+    // · 分片可靠有序，用 bufferedAmount 做背压，避免灌爆 SCTP 缓冲。
     // · 直连失败不自动重试，由发送方选择回退到一期服务器中转。
     // · DTLS 已经保证链路加密；额外显示 4 位确认码，用来发现信令被替换。
+    //
+    // 吞吐实测：Chrome 下 16 KiB 分片配 1 MiB 发送窗口最快，更大分片或窗口
+    // 都会明显变慢；读取提前一片，与发送重叠。接收端可边收边写入选定文件。
 
     const CHUNK_SIZE = 16 * 1024;
+    const CHUNK_SIZE_MIN = 1024;
     const BUFFER_HIGH = 1024 * 1024;
     const BUFFER_LOW = 256 * 1024;
+    const BUFFER_TIMEOUT_MS = 30000;
+    const PREFETCH_DEPTH = 1;
+    const STATS_INTERVAL_MS = 1000;
     const ICE_TIMEOUT_MS = 25000;
     const SAS_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const SAS_LENGTH = 4;
@@ -42,6 +49,17 @@
     function supportsRtc() {
         return typeof window.RTCPeerConnection === 'function'
             && !!(window.crypto && window.crypto.subtle);
+    }
+
+    function supportsSavePicker() {
+        return typeof window.showSaveFilePicker === 'function' && window.isSecureContext !== false;
+    }
+
+    function suggestFileName(name) {
+        return String(name || '文件')
+            .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '_')
+            .trim()
+            .slice(0, 120) || '文件';
     }
 
     async function request(path, options = {}) {
@@ -122,7 +140,20 @@
             this.sentBytes = 0;
             this.progressBar = null;
             this.progressStatus = null;
+            this.progressStats = null;
             this.wakeLock = null;
+
+            // 接收侧：可选流式落盘。未选择目标时仍走内存 Blob 回退。
+            this.streaming = false;
+            this.writable = null;
+            this.writeChain = Promise.resolve();
+            this.streamWriteError = null;
+            this.savePickerPending = false;
+            this.pendingDone = false;
+            // 链路诊断：候选对类型、RTT 与按秒采样的吞吐。
+            this.statsTimer = null;
+            this.statsText = '';
+            this.statsSample = null;
 
             window.addEventListener('beforeunload', event => {
                 if (!this.transferring) return;
@@ -282,6 +313,7 @@
                 file: this.incoming,
                 status: '已找到文件，正在等待发送方建立直连…',
                 warning: '传输期间请不要关闭或刷新页面。',
+                save: true,
                 buttons: [{ label: '取消', action: 'cancel', danger: true }]
             });
             this.pollLoop();
@@ -419,6 +451,7 @@
                         status: '正在接收文件…',
                         warning: '传输期间请不要关闭或刷新页面。',
                         progress: true,
+                        save: true,
                         buttons: [{ label: '取消', action: 'cancel', danger: true }]
                     });
                 }
@@ -439,6 +472,8 @@
 
         onPeerLeft() {
             if (this.mode !== 'send') return;
+            this.stopStats();
+            this.releaseWritable();
             this.resetPeer();
             this.peerJoined = false;
             this.started = false;
@@ -456,7 +491,9 @@
             const pc = new RTCPeerConnection({
                 iceServers: this.config.iceServers || [],
                 iceTransportPolicy: 'all',
-                bundlePolicy: 'max-bundle'
+                bundlePolicy: 'max-bundle',
+                // 提前收集少量候选，缩短拿到 offer 之后的建连时间。
+                iceCandidatePoolSize: 2
             });
             this.pc = pc;
             pc.onicecandidate = event => {
@@ -520,6 +557,7 @@
                     verify: this.sas,
                     hint: '与发送方核对这 4 位确认码，一致后等待发送方开始传输。',
                     warning: '传输期间请不要关闭或刷新页面。',
+                    save: true,
                     buttons: [{ label: '取消', action: 'cancel', danger: true }]
                 });
             }
@@ -531,14 +569,18 @@
                 try { message = JSON.parse(data); }
                 catch { return; }
                 if (message.type === 'meta') {
+                    // 用户可能已经在等待直连时选好保存位置，这里只重置计数，
+                    // 不能中断已经打开的写入目标。
+                    this.receivedChunks = [];
+                    this.receivedBytes = 0;
+                    this.streamWriteError = null;
+                    this.pendingDone = false;
                     this.incoming = {
                         name: String(message.name || '文件'),
                         size: Number(message.size) || 0,
                         type: String(message.mime || 'application/octet-stream')
                     };
                     this.expected = this.incoming.size;
-                    this.receivedChunks = [];
-                    this.receivedBytes = 0;
                     this.transferring = true;
                     this.lastProgressAt = 0;
                     this.transferActive(true);
@@ -548,8 +590,10 @@
                         status: '正在接收文件…',
                         warning: '传输期间请不要关闭或刷新页面。',
                         progress: true,
+                        save: true,
                         buttons: [{ label: '取消', action: 'cancel', danger: true }]
                     });
+                    this.startStats();
                     return;
                 }
                 if (message.type === 'done') {
@@ -569,8 +613,15 @@
                 this.onConnectionFailed('接收到的数据超过文件大小');
                 return;
             }
-            this.receivedChunks.push(chunk);
+            if (this.streaming) this.writeChunk(chunk);
+            else this.receivedChunks.push(chunk);
             this.updateProgress(this.receivedBytes, this.expected);
+        }
+
+        resolveChunkSize() {
+            const maxMessageSize = this.pc && this.pc.sctp && this.pc.sctp.maxMessageSize;
+            if (!Number.isFinite(maxMessageSize) || maxMessageSize <= 0) return CHUNK_SIZE;
+            return Math.max(CHUNK_SIZE_MIN, Math.min(CHUNK_SIZE, Math.floor(maxMessageSize)));
         }
 
         async startSending() {
@@ -590,6 +641,7 @@
                 progress: true,
                 buttons: [{ label: '取消', action: 'cancel', danger: true }]
             });
+            this.startStats();
             try {
                 // 消息类型用 type，MIME 用 mime。同一对象里不能写两个 type，
                 // 否则后一个会覆盖 meta，接收端会把它当成未知消息丢掉。
@@ -599,21 +651,39 @@
                     size: this.file.size,
                     mime: this.file.type || 'application/octet-stream'
                 }));
-                for (let offset = 0; offset < this.file.size; offset += CHUNK_SIZE) {
+
+                const chunkSize = this.resolveChunkSize();
+                const total = this.file.size;
+                const queue = [];
+                let nextOffset = 0;
+                const enqueue = () => {
+                    if (nextOffset >= total) return;
+                    const start = nextOffset;
+                    const end = Math.min(start + chunkSize, total);
+                    nextOffset = end;
+                    // 读取 Promise 先排队，网络发送与下一片读取重叠。
+                    queue.push(this.file.slice(start, end).arrayBuffer());
+                };
+                for (let index = 0; index < PREFETCH_DEPTH; index++) enqueue();
+
+                while (queue.length) {
                     if (this.closed) throw new DOMException('已取消', 'AbortError');
                     await this.waitForBuffer();
                     if (!this.dc || this.dc.readyState !== 'open') throw new Error('连接已断开');
-                    const slice = await this.file.slice(offset, offset + CHUNK_SIZE).arrayBuffer();
-                    this.dc.send(slice);
-                    this.sentBytes += slice.byteLength;
-                    this.updateProgress(this.sentBytes, this.file.size);
+                    const buffer = await queue.shift();
+                    enqueue();
+                    this.dc.send(buffer);
+                    this.sentBytes += buffer.byteLength;
+                    this.updateProgress(this.sentBytes, total);
                 }
+
                 this.dc.send(JSON.stringify({ type: 'done' }));
                 this.finished = true;
                 this.transferring = false;
                 this.transferActive(false);
                 this.releaseWakeLock();
-                this.sentBytes = this.file.size;
+                this.stopStats();
+                this.sentBytes = total;
                 this.paint({
                     file: this.file,
                     status: '已发送完成，等待接收方保存…',
@@ -622,6 +692,7 @@
                 });
             } catch (error) {
                 if (error.name === 'AbortError') return;
+                console.warn('[RTC] 发送循环失败', error.message);
                 this.onConnectionFailed(error.message || '发送失败');
             }
         }
@@ -643,22 +714,102 @@
                 };
                 const check = () => {
                     // 监听器挂上时缓冲可能已经降到阈值以下，浏览器不会再补发
-                    // bufferedamountlow；少这一次复查就会一直等到 5 秒超时。
+                    // bufferedamountlow；少这一次复查就会一直等到超时。
                     if (!channel || channel.readyState !== 'open' || channel.bufferedAmount <= BUFFER_LOW) finish();
                 };
                 channel.addEventListener('bufferedamountlow', finish);
                 channel.addEventListener('close', finish);
-                const timeoutTimer = setTimeout(finish, 5000);
+                // 慢链路排空 768 KiB 可能超过 5 秒，超时上调到 30 秒。
+                const timeoutTimer = setTimeout(finish, BUFFER_TIMEOUT_MS);
                 pollTimer = setInterval(check, 50);
                 check();
             });
         }
 
+        writeChunk(chunk) {
+            if (!this.writable) {
+                this.receivedChunks.push(chunk);
+                return;
+            }
+            const writable = this.writable;
+            // 写入串行排队，保证分片顺序与 DataChannel 一致。
+            this.writeChain = this.writeChain
+                .then(() => writable.write(chunk))
+                .catch(error => this.onStreamWriteFailed(error));
+        }
+
+        onStreamWriteFailed(error) {
+            if (!this.writable || this.streamWriteError) return;
+            this.streamWriteError = error || new Error('写入失败');
+            this.onConnectionFailed('保存文件失败：' + this.streamWriteError.message);
+        }
+
+        releaseWritable() {
+            const writable = this.writable;
+            this.writable = null;
+            this.streaming = false;
+            this.writeChain = Promise.resolve();
+            if (writable) writable.abort().catch(() => {});
+        }
+
+        async chooseSaveTarget() {
+            if (this.streaming || this.savePickerPending || this.finished) return;
+            if (!supportsSavePicker()) {
+                this.toast('当前浏览器不支持选择保存位置，将保存到下载目录', 'error');
+                return;
+            }
+            this.savePickerPending = true;
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: suggestFileName(this.incoming && this.incoming.name)
+                });
+                const writable = await handle.createWritable();
+                if (this.closed) {
+                    await writable.abort().catch(() => {});
+                    return;
+                }
+                this.writable = writable;
+                this.streaming = true;
+                this.streamWriteError = null;
+                const buffered = this.receivedChunks;
+                this.receivedChunks = [];
+                // 已经收到的分片先落盘，之后到达的分片继续排队写入。
+                this.writeChain = this.writeChain
+                    .then(async () => {
+                        for (const chunk of buffered) await writable.write(chunk);
+                    })
+                    .catch(error => this.onStreamWriteFailed(error));
+                this.toast('已选择保存位置，后续分片会直接写入文件');
+                const button = this.overlay && this.overlay.querySelector('[data-action="save-target"]');
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = '正在写入所选文件';
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError') this.toast('无法写入所选位置：' + error.message, 'error');
+            } finally {
+                this.savePickerPending = false;
+                if (this.pendingDone) {
+                    this.pendingDone = false;
+                    await this.finishReceive();
+                }
+            }
+        }
+
         async finishReceive() {
-            if (this.finished) return;
+            if (this.finished || this.closed) return;
             if (!this.incoming || !this.expected) return;
             if (this.receivedBytes !== this.expected) {
                 this.onConnectionFailed(`文件不完整（${formatBytes(this.receivedBytes)} / ${formatBytes(this.expected)}）`);
+                return;
+            }
+            if (this.savePickerPending) {
+                // 保存位置对话框还开着，等用户选完再决定走流式还是下载。
+                this.pendingDone = true;
+                return;
+            }
+            if (this.streaming) {
+                await this.finishStreaming();
                 return;
             }
             try {
@@ -675,6 +826,7 @@
                 this.transferring = false;
                 this.transferActive(false);
                 this.releaseWakeLock();
+                this.stopStats();
                 this.sendControl('received');
                 this.paint({
                     file: this.incoming,
@@ -687,8 +839,36 @@
             }
         }
 
+        async finishStreaming() {
+            try {
+                await this.writeChain;
+                if (this.streamWriteError) throw this.streamWriteError;
+                const writable = this.writable;
+                if (!writable) throw new Error('写入目标已关闭');
+                await writable.close();
+                this.writable = null;
+                this.streaming = false;
+                this.finished = true;
+                this.transferring = false;
+                this.transferActive(false);
+                this.releaseWakeLock();
+                this.stopStats();
+                this.sendControl('received');
+                this.paint({
+                    file: this.incoming,
+                    status: '文件已保存到所选位置',
+                    hint: '会话已结束，取件码不可重复使用。',
+                    buttons: [{ label: '关闭', action: 'close', primary: true }]
+                });
+            } catch (error) {
+                this.onConnectionFailed('保存文件失败：' + error.message);
+            }
+        }
+
         onConnectionFailed(reason) {
             this.clearIceTimer();
+            this.stopStats();
+            this.releaseWritable();
             this.closePeer();
             this.transferring = false;
             this.transferActive(false);
@@ -761,6 +941,8 @@
         // ---------- 状态与清理 ----------
 
         resetSession() {
+            this.stopStats();
+            this.releaseWritable();
             this.closed = false;
             this.finished = false;
             this.started = false;
@@ -773,6 +955,8 @@
             this.sentBytes = 0;
             this.file = null;
             this.options = {};
+            this.streamWriteError = null;
+            this.pendingDone = false;
             this.receivedChunks = [];
             this.receivedBytes = 0;
             this.expected = null;
@@ -781,6 +965,7 @@
             this.remoteDescriptionSet = false;
             this.progressBar = null;
             this.progressStatus = null;
+            this.progressStats = null;
         }
 
         resetPeer() {
@@ -854,6 +1039,8 @@
             this.active = false;
             this.transferring = false;
             this.clearIceTimer();
+            this.stopStats();
+            this.releaseWritable();
             this.closePeer();
             this.transferActive(false);
             this.releaseWakeLock();
@@ -877,6 +1064,8 @@
             this.active = false;
             this.transferring = false;
             this.clearIceTimer();
+            this.stopStats();
+            this.releaseWritable();
             this.closePeer();
             this.transferActive(false);
             this.releaseWakeLock();
@@ -897,6 +1086,8 @@
 
         onRoomGone(error) {
             this.clearIceTimer();
+            this.stopStats();
+            this.releaseWritable();
             this.closePeer();
             this.transferring = false;
             this.transferActive(false);
@@ -952,6 +1143,7 @@
             }
             this.progressBar = null;
             this.progressStatus = null;
+            this.progressStats = null;
         }
 
         paint(view) {
@@ -969,14 +1161,18 @@
                 ? `<div class="rtc-verify"><span>确认码</span><strong>${esc(view.verify || '----')}</strong></div>`
                 : '';
             const progress = view.progress
-                ? '<div class="rtc-progress"><span></span></div>'
+                ? '<div class="rtc-progress"><span></span></div><p class="rtc-stats" aria-hidden="true"></p>'
                 : '';
             const status = view.status
                 ? `<p class="rtc-status" role="status" aria-live="polite">${esc(view.status)}</p>`
                 : '';
             const hint = view.hint ? `<p class="rtc-hint">${esc(view.hint)}</p>` : '';
             const warning = view.warning ? `<p class="rtc-warning">${esc(view.warning)}</p>` : '';
-            const buttons = (view.buttons || []).map(button => {
+            const actions = [...(view.buttons || [])];
+            if (view.save && supportsSavePicker() && !this.streaming && !this.finished) {
+                actions.unshift({ label: '保存到磁盘', action: 'save-target' });
+            }
+            const buttons = actions.map(button => {
                 const classes = ['btn'];
                 if (button.primary) classes.push('btn-primary');
                 if (button.danger) classes.push('btn-danger');
@@ -986,12 +1182,83 @@
             body.innerHTML = `${file}${code}${verify}${status}${progress}${hint}${warning}<div class="rtc-actions">${buttons}</div>`;
             this.progressBar = progress ? $('.rtc-progress span', body) : null;
             this.progressStatus = progress ? $('.rtc-status', body) : null;
+            this.progressStats = progress ? $('.rtc-stats', body) : null;
+            this.updateStatsText();
 
             body.querySelectorAll('[data-action]').forEach(button => {
                 button.onclick = () => this.onAction(button.dataset.action);
             });
             const primary = body.querySelector('.btn-primary') || body.querySelector('[data-action="cancel"]');
             if (primary) primary.focus({ preventScroll: true });
+        }
+
+        startStats() {
+            this.stopStats();
+            if (!this.pc) return;
+            this.sampleStats();
+            this.statsTimer = setInterval(() => this.sampleStats(), STATS_INTERVAL_MS);
+        }
+
+        stopStats() {
+            if (this.statsTimer) {
+                clearInterval(this.statsTimer);
+                this.statsTimer = null;
+            }
+            this.statsSample = null;
+            this.statsText = '';
+            this.updateStatsText();
+        }
+
+        async sampleStats() {
+            if (!this.pc || this.closed) {
+                this.stopStats();
+                return;
+            }
+            let report;
+            try { report = await this.pc.getStats(); }
+            catch { return; }
+            let pair = null;
+            let transport = null;
+            report.forEach(stat => {
+                if (stat.type === 'transport' && stat.selectedCandidatePairId) transport = stat;
+            });
+            if (transport) pair = report.get(transport.selectedCandidatePairId);
+            if (!pair) {
+                report.forEach(stat => {
+                    if (stat.type === 'candidate-pair' && stat.state === 'succeeded' && (stat.nominated || !pair)) pair = stat;
+                });
+            }
+            if (!pair) return;
+
+            const local = report.get(pair.localCandidateId);
+            const remote = report.get(pair.remoteCandidateId);
+            const types = [local && local.candidateType, remote && remote.candidateType];
+            const kind = types.includes('relay') ? 'TURN 中继'
+                : types.includes('srflx') || types.includes('prflx') ? 'NAT 打洞'
+                    : types.includes('host') ? '局域网直连' : '';
+            const bytes = this.mode === 'send' ? pair.bytesSent : pair.bytesReceived;
+            const now = performance.now();
+            let rate = '';
+            if (this.statsSample && Number.isFinite(bytes)) {
+                const seconds = (now - this.statsSample.at) / 1000;
+                const delta = bytes - this.statsSample.bytes;
+                if (seconds > 0 && delta >= 0) rate = formatBytes(delta / seconds) + '/s';
+            }
+            if (Number.isFinite(bytes)) this.statsSample = { at: now, bytes };
+            const parts = [];
+            if (kind) parts.push(kind);
+            if (Number.isFinite(pair.currentRoundTripTime)) {
+                parts.push('RTT ' + Math.round(pair.currentRoundTripTime * 1000) + ' ms');
+            }
+            if (rate) parts.push(rate);
+            this.statsText = parts.join(' · ');
+            this.updateStatsText();
+        }
+
+        updateStatsText() {
+            if (!this.progressStats) return;
+            if (this.progressStats.textContent === this.statsText) return;
+            this.progressStats.textContent = this.statsText;
         }
 
         updateProgress(done, total) {
@@ -1012,6 +1279,7 @@
             if (action === 'cancel') return this.cancel();
             if (action === 'fallback') return this.fallback();
             if (action === 'send') return this.startSending();
+            if (action === 'save-target') return this.chooseSaveTarget();
             if (action === 'close') return this.close({});
         }
 
