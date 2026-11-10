@@ -586,7 +586,7 @@ const defaultConfig = {
     theme: 'auto',
     themeStyle: 'prism',
     searchEngine: 'google',
-    showBookmarkIcons: true,
+    showBookmarkIcons: false,
     categories: [
         {
             id: 'cat_1',

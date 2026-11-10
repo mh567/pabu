@@ -40,6 +40,18 @@ test('themes: 棱镜的选中态用白面加深色标记，不靠白底压白标
     assert.match(mark[1], /background:\s*#1b232b/i, '勾号是深色，压在白底上才看得见');
 });
 
+test('themes: 棱镜分类标题收敛到 15/14px 并保持标题行盒', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'themes.css'), 'utf8');
+    const title = /:root\[data-theme-style="prism"\] \.category-title \{([^}]*)\}/.exec(css);
+    assert.ok(title, '棱镜分类标题规则存在');
+    assert.match(title[1], /font-size:\s*15px/, '桌面分类标题 15px');
+    assert.match(title[1], /line-height:\s*1\.33/, '行高 1.33 让标题行盒约为 20px');
+    assert.match(title[1], /letter-spacing:\s*0/, '小字号不再收紧字距');
+    assert.match(title[1], /font-weight:\s*600/, '字号缩小不连带降低字重');
+    assert.ok(css.includes(':root[data-theme-style="prism"] .category-title { font-size: 14px; }'),
+        '手机分类标题 14px');
+});
+
 test('themes: 棱镜滚动不做经典主题没有的逐帧重绘', () => {
     // 用户报告 Windows 上棱镜上下滚动掉帧、经典主题正常。实测一次 41 帧滚动：
     // 棱镜 PictureLayer::Update 328 次，经典 164 次。两处棱镜独有开销：

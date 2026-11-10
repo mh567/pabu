@@ -144,7 +144,7 @@
     :root[data-theme-style="prism"] :is(.category,.module-widget):hover::after { opacity: .8; }
 }
 :root[data-theme-style="prism"] .category-header { margin-bottom: 12px; padding-bottom: 0; background: none; border: 0; }
-:root[data-theme-style="prism"] .category-title { font-size: 16px; font-weight: 600; letter-spacing: -.01em; color: var(--text); text-transform: none; line-height: 1.25; }
+:root[data-theme-style="prism"] .category-title { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--text); text-transform: none; line-height: 1.33; }
 :root[data-theme-style="prism"] :is(.bookmark,.bookmark-text-only) {
     border-radius: 12px;
     --bookmark-face: linear-gradient(175deg,#ffffff24 0%,#ffffff0b 45%,#00000009 100%),rgba(20,31,41,.16);
@@ -246,7 +246,7 @@
     :root[data-theme-style="prism"] .admin-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; overflow: visible; }
     :root[data-theme-style="prism"] .admin-tab { min-width: 0; padding: 0 8px; font-size: 13px; }
     :root[data-theme-style="prism"] .category { padding: 20px 18px 16px; border-radius: 28px; }
-    :root[data-theme-style="prism"] .category-title { font-size: 15px; }
+    :root[data-theme-style="prism"] .category-title { font-size: 14px; }
     :root[data-theme-style="prism"] .modal-body { padding: 18px 16px; }
     :root[data-theme-style="prism"] .modal-header { padding: 14px 16px; }
     :root[data-theme-style="prism"] .modal-header h2 { font-size: 20px; }

@@ -107,6 +107,7 @@ test('HTTP: factory defaults and supported legacy bookmarks seed the site naviga
     const initial = await (await fresh.request('/api/config')).json();
     assert.equal(initial.theme, 'auto');
     assert.equal(initial.searchEngine, 'google');
+    assert.equal(initial.showBookmarkIcons, false, '新站点默认不显示导航图标');
     await fresh.stop();
 
     const legacy = { ...seed, bookmarks: seed.categories };
@@ -120,7 +121,7 @@ test('HTTP: factory defaults and supported legacy bookmarks seed the site naviga
     const cookie = await login(old);
     const migrated = await (await old.request('/api/config')).json();
     assert.equal(migrated.theme, 'auto');
-    assert.equal(migrated.showBookmarkIcons, true);
+    assert.equal(migrated.showBookmarkIcons, false, '缺少图标偏好时迁移为不显示');
     assert.equal(migrated.categories[0].name, 'Site');
     assert.equal(migrated.privacyMode, undefined);
     assert.equal(migrated.legacyPrivate, undefined);

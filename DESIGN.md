@@ -34,9 +34,9 @@ typography:
   interface:
     fontFamily: "'Sylph Inter Tight', 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif"
   category-title:
-    fontSize: "16px"
+    fontSize: "15px"
     fontWeight: 600
-    lineHeight: 1.25
+    lineHeight: 1.33
   bookmark-title:
     fontSize: "12px"
     fontWeight: 600
@@ -80,7 +80,7 @@ components:
 Latin 字符使用自托管 Sylph Inter Tight Variable（字重 100 至 900）；字体文件是 Latin 子集，中文回落至 SF Pro Display、PingFang SC、Microsoft YaHei 和系统 sans-serif。
 
 ### Hierarchy
-- 分类标题：600，桌面 16px、手机 15px，行高 1.25，字距 `-.01em`。
+- 分类标题：600，桌面 15px、手机 14px，行高 1.33，字距 `0`。分类标题是分组标签，字号与 12px 书签标题保持一个可辨的层级差（桌面 1.25 倍、手机约 1.17 倍），字重不跟着降，避免和书签抢层级。行高取 1.33 是为了让标题行盒仍约为 20px（15 × 1.33 ≈ 20），缩小字号时分类网格不会上下跳动。
 - 书签标题：复用原版12px、600字重、单行截断与名称提示。
 - 页脚链接：13px；输入、按钮及其他文字沿用对应组件既有字号。
 
@@ -103,7 +103,7 @@ Latin 字符使用自托管 Sylph Inter Tight Variable（字重 100 至 900）�
 ### 分类卡片
 - 分类板是一层近乎无色的透明薄膜：底色 `rgba(255,255,255,.01)`，叠加上方冷调 `#e1f4ff14` 与斜向 `#a5dcf608` 的低透色偏，环境光直接透过表面，不再是一块实心深色板。
 - 薄膜四周有一条 1.5px 光学薄边，用 `mask-composite: exclude` 从矩形环切出：左上角一道暖白径向高光，右下角一道 `#b8eaff68` 冷光，环上再叠一道 125 度斜向淡光。常态不透明度 0.5、悬停 0.8。薄边 `pointer-events: none`，不参与命中测试。
-- 分类标题为 16px（手机 15px）；书签文字沿用原版12px。模块卡使用同一层薄膜与同一条光学薄边，两者在页面上是同一种卡片语言。
+- 分类标题为 15px（手机 14px），行高 1.33；书签文字沿用原版12px。标题缩小后仍保持约 20px 的标题行盒，卡片网格不会因字号变化而位移。模块卡使用同一层薄膜与同一条光学薄边，两者在页面上是同一种卡片语言。
 
 ### 书签按钮
 - 书签使用12px圆角按钮轮廓，保留原版宽高与排版，使用中性渐变底、细边与柔和投影。纯文字布局中的名称居中，带图标布局沿用图标与文字排列。

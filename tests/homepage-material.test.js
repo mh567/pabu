@@ -546,8 +546,8 @@ test('网格的编辑控件由模板分支生成，且只在编辑态出现', ()
 
 test('显示图标开关真的渲染出图标，关掉则退回纯文字卡', () => {
     const bm = methodBody(appSource, 'createBookmark');
-    // 开关必须参与渲染判断：此前只存了值，卡片永远走纯文字模板。
-    assert.match(bm, /showBookmarkIcons !== false/, '按本表面的配置判断是否显示图标');
+    // 开关必须参与渲染判断；默认不显示，只有显式开启 true 才渲染。
+    assert.match(bm, /showBookmarkIcons === true/, '按本表面的配置判断是否显示图标');
     assert.match(bm, /surface\.getConfig\(\)/, '读的是当前表面（首页 / 站点画布）的配置');
     assert.match(bm, /class="bookmark-icon"[^>]*aria-hidden="true"/, '图标是装饰节点，不进入无障碍树');
     assert.match(bm, /has-icon/, '带图标的卡片有独立钩子类');
