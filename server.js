@@ -295,6 +295,7 @@ const { createSyncStore } = require('./lib/sync-store');
 const { createSqliteBackend } = require('./lib/session-sqlite');
 const { createTransferStore } = require('./lib/transfer-store');
 const { createRtcSessionStore } = require('./lib/rtc-session');
+const { defaultIconService } = require('./lib/icon-service');
 let navigation, syncStore, transferStore, rtcSessions, db, sessionStore;
 
 // 文件分享的默认值按 1 核 1G 的小机器定：单文件 64 MiB、总量 256 MiB。
@@ -433,7 +434,7 @@ app.use((req, res, next) => {
     // img-src 与 service.js 的 safeAvatarUrl 是同一份白名单的浏览器侧兜底：
     // 时间线上 X 的头像来自 pbs.twimg.com，除此之外不允许外站图片被加载。
     res.header('Content-Security-Policy',
-        "script-src 'self' 'unsafe-inline'; img-src 'self' data: ");
+        "script-src 'self' 'unsafe-inline'; img-src 'self' data: https:;");
 
     // CORS
     const origin = req.headers.origin;
@@ -771,6 +772,29 @@ async function init() {
 app.get('/api/config', publicReadLimit, (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.json(navigation.read('site').config);
+});
+
+app.get('/api/icon', publicReadLimit, async (req, res) => {
+    const rawUrl = req.query.url;
+    if (!rawUrl || typeof rawUrl !== 'string') {
+        return res.status(400).json({ error: '请提供有效的网址参数' });
+    }
+    const validated = defaultIconService.validateUrl(rawUrl);
+    if (!validated) {
+        return res.status(400).json({ error: '无效或不受支持的网址' });
+    }
+    try {
+        const icon = await defaultIconService.getIcon(rawUrl);
+        if (!icon || !icon.data) {
+            return res.status(404).json({ error: '未获取到网站图标' });
+        }
+        res.setHeader('Content-Type', icon.contentType);
+        res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        return res.send(icon.data);
+    } catch {
+        return res.status(500).json({ error: '获取图标失败' });
+    }
 });
 
 app.post('/api/config', rateLimit, requireAdmin, (req, res) => {

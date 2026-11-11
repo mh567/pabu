@@ -29,6 +29,10 @@ Pabu 是从 Habu 独立拆分的轻量导航服务，核心功能是导航编辑
 
 直连失败时由发送方选择回退到服务器中转，走同一条端到端加密边界：浏览器把文件切成 4 MiB 分片，逐片用 AES-GCM 加密后上传，服务端按序号写入 `transfers/<code>.bin`，只保存密文。元数据与取件凭据留在内存，取件凭据只通过 `X-Pabu-Grant` 请求头传递。上传完成后可凭 PIN 换取一次性凭据，下载完成即删除密文文件。默认单文件 64 MiB、总容量 256 MiB，可用 `PABU_TRANSFER_MAX_FILE`、`PABU_TRANSFER_MAX_TOTAL`、`PABU_TRANSFER_MAX_ENTRIES` 和 `PABU_TRANSFER_CHUNK_SIZE` 调整。未完成的上传超过 1 小时由清理任务回收，进程启动时会清空整个 `transfers/` 目录。中转完成后，发送方会把单词取件码通过原信令会话送回接收方，接收方自动跳到文件取件页。文件取件页为 `/f/<code>`，`/p/<code>` 在命中文件分享时重定向到该页。
 
+## 网站图标与抓取
+
+导航书签默认不显示图标。用户开启「显示图标」后，书签图标位于文字左侧。服务端提供 `/api/icon` 抓取网站真实图片，优先解析页面 HTML 前 64 KiB 的 `<link rel="icon">` 或 `<link rel="apple-touch-icon">`，未能获取时回退到 `${origin}/favicon.ico`。服务端以目标站点 origin 为键进行内存缓存与单飞行合并，拦截云元数据与非法协议。前端通过 `object-fit: cover` 统一裁剪缩放为 16px 见方、4px 圆角规格，并在图片失效时回退到主题配色的首字字母牌。
+
 ## 不包含的能力
 
 Pabu 不包含服务器监控与 Go agent、私人收藏库、备忘与待办、时间线、微博热搜或 WebDAV 备份。对应前后端接口均不提供。

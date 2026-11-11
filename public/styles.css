@@ -298,6 +298,17 @@ body {
     user-select: none;
 }
 
+img.bookmark-icon {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 4px;
+    object-fit: cover;
+    overflow: hidden;
+    background: transparent;
+}
+
 .bookmark-title {
     font-size: 13px;
     text-align: center;
@@ -2116,7 +2127,8 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .bookmark:hover::before,.bookmark:focus-visible::before { opacity: var(--bookmark-glow-opacity); }
 .bookmark:active,.bookmark-text-only:active,.bookmark.is-pressed { transform: translateY(var(--bookmark-press-depth)) scale(var(--bookmark-press-scale)); border-color: var(--bookmark-pressed-border); background: var(--bookmark-pressed-face); box-shadow: var(--bookmark-press-shadow); transition-duration: var(--bookmark-press-motion); }
 .bookmark:active::before,.bookmark.is-pressed::before { opacity: 0; transition-duration: 20ms; }
-.bookmark.has-icon { gap: 2px; padding-top: 4px; padding-bottom: 4px; }
+.bookmark.has-icon { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 7px; padding: 6px 9px; }
+.bookmark.has-icon .bookmark-title { text-align: left; flex: 1; min-width: 0; }
 .bookmark-title,.bookmark-text-only .bookmark-title { position: relative; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; letter-spacing: .015em; }
 /* 页面级操作栏：背板底部的纯文字一行，取代原先右下角固定的 .utility-dock 药丸。
    药丸跟着视口走，窄屏会压住内容，且「编辑」在两种状态里换文案时宽度会跳。

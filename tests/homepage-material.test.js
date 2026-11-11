@@ -552,8 +552,9 @@ test('显示图标开关真的渲染出图标，关掉则退回纯文字卡', ()
     assert.match(bm, /class="bookmark-icon"[^>]*aria-hidden="true"/, '图标是装饰节点，不进入无障碍树');
     assert.match(bm, /has-icon/, '带图标的卡片有独立钩子类');
     assert.match(bm, /bookmark-text-only/, '关掉图标时退回纯文字卡');
-    // 图标是本地字母牌：不发任何外部请求，也不依赖被 CSP 拦掉的外站图片。
-    assert.doesNotMatch(bm, /<img|https?:\/\//, '图标不得是外站图片（CSP 只允许 self / data:）');
+    // 图标获取网站真实图片，并通过首字字母牌兜底
+    assert.match(bm, /<img class="bookmark-icon"[^>]*src="\$\{this\.esc\(iconUrl\)\}"/, '渲染真实图片');
+    assert.match(bm, /\/api\/icon\?url=/, '通过站点图标接口抓取网站真实图片');
     assert.match(bm, /Array\.from\(/, '按码点取首字，emoji 与中文不会被切成半个字符');
     // 样式必须挂在主题令牌上，跟着经典 / 棱镜一起变。
     const icon = /^\.bookmark-icon\s*\{([^}]*)\}/m.exec(fullCode);
@@ -563,6 +564,15 @@ test('显示图标开关真的渲染出图标，关掉则退回纯文字卡', ()
     assert.match(icon[1], /var\(--border\)/, '描边取主题边框色');
     assert.match(icon[1], /var\(--text-secondary\)/, '字母取主题次级文字色');
     assert.doesNotMatch(icon[1], /#[0-9a-f]{3,8}\b/i, '不写死颜色，避免与主题配色分叉');
+    // 图标在文字左侧，裁剪缩放为统一合适大小和形状
+    const imgRule = /img\.bookmark-icon\s*\{([^}]*)\}/.exec(fullCode);
+    assert.ok(imgRule, 'img.bookmark-icon 具备独立规范规则');
+    assert.match(imgRule[1], /object-fit:\s*cover/, '图片统一裁剪缩放');
+    assert.match(imgRule[1], /border-radius:\s*4px/, '形状统一 4px 圆角');
+    assert.match(imgRule[1], /width:\s*16px/, '尺寸统一 16px');
+    const hasIconRule = /\.bookmark\.has-icon\s*\{([^}]*)\}/.exec(fullCode);
+    assert.ok(hasIconRule, '.bookmark.has-icon 具备横排规则');
+    assert.match(hasIconRule[1], /flex-direction:\s*row/, '图标位置在文字左侧');
 });
 
 test('编辑态书签的点击被拦下，不会跳转', () => {

@@ -1,6 +1,25 @@
 {
   "versions": [
     {
+      "version": "0.8.4",
+      "releaseDate": "2026-11-11",
+      "summary": "导航书签支持获取网站真实图标，并在开启时居于文字左侧统一裁剪缩放。",
+      "highlights": [
+        "导航书签默认不显示图标，保持纯文字卡片简洁排版。",
+        "开启「显示图标」后，图标位于文字左侧，标题文字左对齐并保持省略截断。",
+        "新增服务端图标抓取服务，优先从目标网页 HTML 解析真实图标，未能获取时回退到 favicon.ico。",
+        "前端对真实图片统一裁剪缩放为 16px 见方、4px 圆角的规范形状，加载失败时平滑回退到首字字母牌。"
+      ],
+      "changes": [
+        "新增 lib/icon-service.js：流式解析 HTML 提取 link rel 真实图标，提供 origin 内存缓存、单飞行合并与云元数据 SSRF 防护。",
+        "server.js：新增 GET /api/icon 接口并配置 7 天客户端缓存与 nosniff 安全响应头，CSP 补充外站图片兼容。",
+        "public/app.js：createBookmark 生成真实图标图片标签与首字兜底节点，保持 showBookmarkIcons === true 才渲染。",
+        "public/styles.css：.bookmark.has-icon 布局调整为 flex 横排，增加 img.bookmark-icon 16px、4px 圆角与 object-fit: cover 规则。",
+        "Service Worker 缓存版本更新至 pabu-v28。",
+        "新增 tests/icon-service.test.js 与 tests/icon-http.test.js，更新 tests/homepage-material.test.js 与 tests/rtc-ui.test.js。"
+      ]
+    },
+    {
       "version": "0.8.3",
       "releaseDate": "2026-11-10",
       "summary": "实时传文件增加链路诊断与流式落盘，并按实测结果固定吞吐配置。",

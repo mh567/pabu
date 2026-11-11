@@ -3309,13 +3309,14 @@
             const del = editing
                 ? `<button type="button" class="bookmark-del" data-del-bm="${bmIdx}" title="删除导航" aria-label="删除导航 ${this.esc(bm.title)}">✕</button>`
                 : '';
-            // 图标是标题首字的本地字母牌，不加载外站图片（CSP 只允许 self / data:）。
-            // 样式完全由主题令牌控制，跟着经典与棱镜主题一起变。
-            // 默认不显示图标；只有显式开启 true 才渲染字母牌。
+            // 导航书签默认不显示图标，只有显式开启 true 时才显示。
+            // 显示图标时，图标位置位于文字左侧，获取网站的真实图片并裁剪缩放为统一合适大小和形状。
+            // 图片加载失败时回退到首字字母牌。
             const showIcons = surface.getConfig().showBookmarkIcons === true;
             const initial = Array.from(String(bm.title || '').trim())[0] || '?';
+            const iconUrl = bm.url ? `/api/icon?url=${encodeURIComponent(bm.url)}` : '';
             const icon = showIcons
-                ? `<span class="bookmark-icon" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
+                ? `<img class="bookmark-icon" src="${this.esc(iconUrl)}" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable="false" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='grid'"><span class="bookmark-icon bookmark-icon-fallback" style="display:none" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
                 : '';
             return html(`
                 <a class="bookmark${showIcons ? ' has-icon' : ' bookmark-text-only'}"${attrs} href="${this.esc(bm.url)}" target="_blank" rel="noopener" title="${this.esc(bm.title)}">

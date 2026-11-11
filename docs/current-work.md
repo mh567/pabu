@@ -77,6 +77,8 @@
 - 版本推进到 `0.8.2`，导航图标默认关闭与棱镜分类标题收敛发布。
 - 实时传文件吞吐与落盘优化：进度区读取 `getStats`，显示候选对类型、RTT 与按秒吞吐；接收方可选择保存位置，边收边写入磁盘，未选择时保留内存 Blob 下载；发送循环提前一片读取，与当前分片发送重叠；建连启用候选池预热。实测 Chrome 下 16 KiB 分片配 1 MiB 发送窗口最快，32/64 KiB 分片、4 MiB 高水位与深度 2/4 预读都会明显变慢，`send(Blob)` 会进入缓冲但接收端收不到数据，最终保持预读 ArrayBuffer。
 - 版本推进到 `0.8.3`，实时传文件诊断、流式落盘与预读优化完成。
+- 导航书签真实图标支持：书签默认不显示图标，开启后图标位于文字左侧。新增 `lib/icon-service.js` 与服务端 `/api/icon` 路由，优先从目标网页 HTML 解析真实图标（`<link rel="icon">` 与 `<link rel="apple-touch-icon">`），未能获取时回退到 `${origin}/favicon.ico`。服务端支持内存缓存、单飞行合并与云元数据防护。前端样式增加 `img.bookmark-icon` 规则，通过 `object-fit: cover` 统一裁剪缩放为 16px 见方、4px 圆角规格；加载失败时平滑回退到首字字母牌。Service Worker 缓存更新至 pabu-v28。
+- 版本推进到 `0.8.4`，导航书签真实图标支持发布。
 
 ## 验证
 
@@ -109,6 +111,7 @@
 - 真实公网、对称 NAT、IPv6 与 TURN 仍未在外部网络验证；默认只有公共 STUN，直连失败时回退一期服务器中转。
 - 本轮回退与吞吐修复验证：`node --test tests/*.test.js` 共 394 项通过；`node --test tests/browser/rtc-fallback.cjs` 1 项通过。两个独立 Chrome 进程、20 MiB 本地直连基准 36 MB/s，发送循环背压等待 0 次。移动网络到家庭宽带的实际速率未在本地复现为代码瓶颈，需要用 `chrome://webrtc-internals` 观察选中的候选对、RTT 与可用上行带宽。
 - 本轮实时传文件优化验证：`node --test tests/*.test.js` 共 399 项通过；`tests/browser/rtc-fallback.cjs` 1 项通过；新增 `tests/browser/rtc-throughput.cjs` 双 Chrome 进程 16 MiB 直连闭环通过，下载内容 SHA-256 一致。页内计时显示发送循环与接收循环速率基本一致，瓶颈在 DataChannel 本身。本机单次对比：16 KiB 分片约 41 MiB/s，8 KiB 约 31 MiB/s，32 KiB 约 5 MiB/s，64 KiB 约 6 MiB/s；4 MiB 高水位与深度 2/4 预读同样明显变慢，最终保持 16 KiB 分片、1 MiB 高水位、256 KiB 低水位和深度 1 预读。运行环境负载波动较大，基准只作相对比较，不断言绝对吞吐。
+- 本轮网站真实图标验证：`node --test tests/*.test.js` 共 409 项通过。新增 7 项图标抓取服务单元用例与 3 项 HTTP 接口集成用例，覆盖协议校验、元数据过滤、HTML 提取、魔数识别、favicon 回退、单飞行并发合并、负缓存以及 404/安全响应头。`node --check` 检查通过，`git diff --check` 通过。ego 浏览器实测确认默认不显示图标，开启后图标位于文字左侧，实际获取真实外站图片并裁剪缩放为 16px、4px 圆角规格，失败时显示首字兜底。
 - Pabu 项目目录内没有安装依赖；管理脚本验证在临时目录执行了 `npm ci`，测试目录已清理。Pabu 首次运行前需执行 `npm ci` 或使用 `pabu.sh install`。
 
 ## 边界
