@@ -3047,11 +3047,10 @@
                 host.innerHTML = `
                     <button type="button" class="home-theme-trigger" id="${host.id}Trigger" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${host.id}Menu" aria-label="视觉主题">
                         <span class="home-theme-trigger-label" id="${host.id}Value"></span>
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
                     </button>
                     <div class="local-select-menu home-theme-menu" id="${host.id}Menu" popover="manual" role="listbox" aria-labelledby="${host.id}Value">
                         ${Object.entries(window.NavigationSchema.THEMES).map(([id, item], index) =>
-                            `<button type="button" role="option" tabindex="-1" id="${host.id}Option-${id}" data-theme-option="${id}" ${optionAttr}="${id}" style="--option-index:${index}" aria-selected="false"><span>${this.esc(item.name)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg></button>`).join('')}
+                            `<button type="button" role="option" tabindex="-1" id="${host.id}Option-${id}" data-theme-option="${id}" ${optionAttr}="${id}" style="--option-index:${index}" aria-selected="false"><span>${this.esc(item.name)}</span></button>`).join('')}
                     </div>`;
                 this.bindThemeDropdown(host);
             }
@@ -3433,7 +3432,10 @@
                 event.stopPropagation();
                 const rect = engineBtn.getBoundingClientRect();
                 const wrapperRect = dropdown.parentElement.getBoundingClientRect();
-                const width = Math.min(Math.max(rect.width, DROPDOWN_MIN_WIDTH), window.innerWidth - 24);
+                const isPrism = document.documentElement.getAttribute('data-theme-style') === 'prism';
+                const width = isPrism
+                    ? Math.min(rect.width, window.innerWidth - 24)
+                    : Math.min(Math.max(rect.width, DROPDOWN_MIN_WIDTH), window.innerWidth - 24);
                 dropdown.style.width = `${width}px`;
                 dropdown.style.left = `${rect.left - wrapperRect.left}px`;
                 dropdown.hidden = !dropdown.hidden;

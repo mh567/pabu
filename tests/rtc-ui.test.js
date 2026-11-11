@@ -107,6 +107,6 @@ test('直连建立后显示确认码，中转回退会送达取件码', () => {
 });
 
 test('Service Worker 缓存实时传输模块', () => {
-    assert.match(sw, /const CACHE = 'pabu-v28'/);
+    assert.match(sw, /const CACHE = 'pabu-v29'/);
     assert.match(sw, /'\/rtc-transfer\.js'/);
 });

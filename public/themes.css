@@ -168,12 +168,14 @@
     -webkit-backdrop-filter: blur(16px) saturate(150%);
 }
 :root[data-theme-style="prism"] .search::before { display: none; }
-:root[data-theme-style="prism"] .home-theme-trigger { border-color: #ffffff14; background: var(--prism-pill); box-shadow: var(--prism-pill-shadow); color: var(--text); }
+:root[data-theme-style="prism"] .home-theme-trigger { border-radius: 12px; border-color: #ffffff14; background: var(--prism-pill); box-shadow: var(--prism-pill-shadow); color: var(--text); width: 80px; justify-content: center; text-align: center; }
 :root[data-theme-style="prism"] .home-theme-trigger:hover:not(:disabled),
-:root[data-theme-style="prism"] .home-theme-trigger[aria-expanded="true"] { background: linear-gradient(175deg,#ffffff30,#ffffff0b),rgba(18,29,39,.24); }
+:root[data-theme-style="prism"] .home-theme-trigger[aria-expanded="true"] { border-color: #ffffff30; background: linear-gradient(175deg,#ffffff30,#ffffff0b),rgba(18,29,39,.24); }
 :root[data-theme-style="prism"] .home-theme-trigger:active:not(:disabled) { box-shadow: var(--press-shadow); }
+:root[data-theme-style="prism"] .home-theme-menu { border-radius: 12px; }
+:root[data-theme-style="prism"] .home-theme-menu [role="option"] { border-radius: 8px; justify-content: center; text-align: center; }
 :root[data-theme-style="prism"] .home-theme-menu [role="option"]:is(:hover,.is-active) { background: rgba(255,255,255,.07); }
-:root[data-theme-style="prism"] .home-theme-menu [aria-selected="true"] { background: linear-gradient(175deg,#ffffff24,#ffffff08); box-shadow: inset 0 1px #ffffff30,0 3px 6px -4px #0006; }
+:root[data-theme-style="prism"] .home-theme-menu [aria-selected="true"] { background: linear-gradient(175deg,#ffffff24,#ffffff08); box-shadow: inset 0 1px #ffffff30,0 3px 6px -4px #0006; font-weight: 600; }
 :root[data-theme-style="prism"] .local-select-button { border-radius: 12px; background: var(--prism-pill); box-shadow: var(--prism-pill-shadow); }
 :root[data-theme-style="prism"] .local-select-button:hover:not(:disabled) { background: linear-gradient(175deg,#ffffff30,#ffffff0b),rgba(18,29,39,.24); }
 :root[data-theme-style="prism"] .local-select-button:active:not(:disabled) { box-shadow: var(--press-shadow); }
@@ -192,6 +194,59 @@
 }
 :root[data-theme-style="prism"] :is(.search-mode,.search-engine,.search-btn)::before { display: none; }
 :root[data-theme-style="prism"] :is(.search-mode,.search-engine,.btn:not(.btn-danger),.special-line-iconbtn,.special-line-btn,.memo-card-manage):hover:not(:disabled) { color: var(--text); border-color: #ffffff30; background: linear-gradient(180deg,#ffffff24,#ffffff09); transform: none; box-shadow: var(--prism-pill-shadow); }
+:root[data-theme-style="prism"] .search-engine {
+    border-radius: 12px;
+    width: 80px;
+    min-width: 80px;
+    padding: 0 8px;
+    justify-content: center;
+    text-align: center;
+}
+:root[data-theme-style="prism"] .engine-arrow {
+    display: none;
+}
+:root[data-theme-style="prism"] .engine-name {
+    max-width: 100%;
+    text-align: center;
+}
+:root[data-theme-style="prism"] .search-engine:hover:not(:disabled),
+:root[data-theme-style="prism"] .search-engine[aria-expanded="true"] {
+    border-color: #ffffff30;
+    background: linear-gradient(175deg,#ffffff30,#ffffff0b),rgba(18,29,39,.24);
+    color: var(--text);
+    transform: none;
+    box-shadow: var(--prism-pill-shadow);
+}
+:root[data-theme-style="prism"] .engine-dropdown {
+    border-radius: 12px;
+    padding: 5px;
+}
+:root[data-theme-style="prism"] .engine-dropdown::before {
+    display: none;
+}
+:root[data-theme-style="prism"] .engine-option {
+    border-radius: 8px;
+    min-height: 34px;
+    padding: 7px 8px;
+    font-size: 13px;
+    justify-content: center;
+    text-align: center;
+}
+:root[data-theme-style="prism"] .engine-option::after {
+    display: none;
+}
+:root[data-theme-style="prism"] .engine-option:is(:hover,.is-active) {
+    background: rgba(255,255,255,.07);
+}
+:root[data-theme-style="prism"] .engine-option.active {
+    background: linear-gradient(175deg,#ffffff24,#ffffff08);
+    box-shadow: inset 0 1px #ffffff30,0 3px 6px -4px #0006;
+    color: var(--text);
+    font-weight: 600;
+}
+@media (max-width: 370px) {
+    :root[data-theme-style="prism"] .search-engine { width: auto; min-width: 60px; padding: 0 6px; }
+}
 :root[data-theme-style="prism"] :is(.search-btn,.search-btn:hover,.btn-primary,.btn-primary:hover:not(:disabled),.special-line-save,.special-line-save:hover,.special-line-btn--primary,.special-line-btn--primary:hover) {
     color: var(--text);
     border: 1px solid transparent;

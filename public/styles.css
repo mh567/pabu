@@ -2463,16 +2463,18 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 /* 当前主题 + 向下展开的菜单。经典主题的背板自带可见边框与顶边受光，
     入口若再画实体胶囊会像贴在上沿的浮块；这里用无底无边的轻量入口，
     悬停与展开时才浮出底色。棱镜在 themes.css 里恢复玻璃胶囊。
-    菜单宽度由 JS 取触发按钮宽度，保持两者等宽。 */
+    菜单宽度由 JS 取触发按钮宽度，保持两者等宽。
+    去除小箭头与对勾，样式与编辑状态设置选框保持一致。 */
 .home-theme-switcher { display: inline-flex; }
-.home-theme-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 88px; min-height: 32px; padding: 4px 8px 4px 10px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms,color 160ms,border-color 160ms; }
-.home-theme-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-theme-trigger svg { flex: none; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 220ms cubic-bezier(.16,1,.3,1); }
-.home-theme-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
-.home-theme-trigger:hover:not(:disabled),.home-theme-trigger[aria-expanded="true"] { color: var(--text); border-color: var(--border); background: var(--bg-hover); }
+.home-theme-trigger { display: inline-flex; align-items: center; justify-content: center; width: 80px; min-width: 80px; min-height: 32px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: linear-gradient(165deg,var(--control-top),var(--control-bottom)); color: var(--text); box-shadow: inset 0 1px var(--inner-light,transparent),0 2px 4px -2px var(--inner-dark,transparent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms,color 160ms,border-color 160ms,box-shadow 160ms; }
+.home-theme-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.home-theme-trigger svg { display: none; }
+.home-theme-trigger:hover:not(:disabled),.home-theme-trigger[aria-expanded="true"] { color: var(--text); border-color: var(--focus); background: linear-gradient(165deg,var(--control-hover-top),var(--control-hover-bottom)); }
 .home-theme-trigger:active:not(:disabled) { box-shadow: var(--press-shadow); }
 .home-theme-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .home-theme-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.home-theme-menu { border-radius: 8px; }
+.home-theme-menu [role="option"] { justify-content: center; text-align: center; padding: 7px 8px; }
 @media (max-width: 1023px) { .home-theme-toolbar { position: static; margin: 0 0 20px; } }
 /* 触控目标下限按**指针类型**判，不按屏幕宽度。
     折叠屏内屏（673/820/884）与平板都是手指在点，但都宽于 600px；
@@ -2481,11 +2483,11 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 @media (pointer: coarse) {
     /* 宽高都要到 44：只有高度够、宽度 40px 的「说明 / 同步 / 编辑」实测仍判不可点。 */
     .site-footer-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 8px; }
-    .home-theme-trigger { min-height: 44px; min-width: 88px; }
+    .home-theme-trigger { min-height: 44px; width: 80px; min-width: 80px; }
     .home-theme-menu [role="option"] { min-height: 44px; }
 }
 @media (max-width: 600px) {
-    .home-theme-trigger { min-height: 44px; min-width: 88px; }
+    .home-theme-trigger { min-height: 44px; width: 80px; min-width: 80px; }
     .home-theme-menu [role="option"] { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
