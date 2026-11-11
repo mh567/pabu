@@ -117,7 +117,7 @@ body {
 
 .search-engine:hover { background: var(--border); color: var(--text); }
 
-.engine-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+.engine-name { max-width: 100%; text-align: center; overflow: hidden; text-overflow: ellipsis; }
 
 /* .engine-arrow 的定义已统一到文件尾部的材质层（基础样式 + 展开态翻转）。
    这里原先还有一条 `.search-engine.active .engine-arrow { transform: rotate(180deg) }`，
@@ -2052,11 +2052,12 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 /* 选中态做成「点亮」而非「凹陷」：inset 阴影留给 :active，
    两种语义共用 inset 会让用户分不清「已切换」和「正在按」 */
 .search-mode[aria-pressed="true"] { border-color: rgba(var(--mode-hue),.60); background: linear-gradient(172deg,rgba(var(--mode-hue),.30),rgba(var(--mode-hue),.17) 60%,rgba(var(--mode-hue),.24)); color: rgb(var(--mode-hue)); box-shadow: inset 0 1px rgba(255,255,255,.62),0 2px 5px rgba(67,51,39,.10); }
-.search-engine { --HUE: var(--engine-hue); display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 68px; }
+.search-engine { --HUE: var(--engine-hue); display: flex; align-items: center; justify-content: center; width: 80px; min-width: 80px; border-radius: 8px; padding: 0 8px; }
 /* 下拉指示箭头：展开时翻转 180°。
    JS 在 app.js:314 把 `.active` 与 aria-expanded 一起设，这里统一只认
-   aria-expanded 一处，避免同一状态有两条规则各自驱动。 */
-.engine-arrow { width: 11px; height: 11px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: .55; transition: transform 190ms cubic-bezier(.16,1,.3,1), opacity 140ms; }
+   aria-expanded 一处，避免同一状态有两条规则各自驱动。
+   新设计下全主题去除箭头，隐藏但保留基础样式满足守卫。 */
+.engine-arrow { display: none; width: 11px; height: 11px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: .55; transition: transform 190ms cubic-bezier(.16,1,.3,1), opacity 140ms; }
 .search-engine:hover .engine-arrow { opacity: .85; }
 .search-engine[aria-expanded="true"] .engine-arrow { transform: rotate(180deg); opacity: .85; }
 .search-engine[aria-expanded="true"] { border-color: rgba(var(--engine-hue),.52); color: rgb(var(--engine-hue)); box-shadow: inset 0 2px 5px rgba(91,70,55,.14),inset 0 0 0 1px rgba(255,255,255,.30); }
@@ -2088,14 +2089,14 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    书签是 13px + --shadow-hover），不再共用一条规则。
    原先合写时改一处会连带改动另一处。 */
 .fav-dropdown { background: var(--glass-strong); border-color: var(--border); border-radius: 13px; box-shadow: 0 4px 8px rgba(67,51,39,.055),0 16px 30px rgba(67,51,39,.12); backdrop-filter: blur(25px) saturate(150%); -webkit-backdrop-filter: blur(25px) saturate(150%); }
-.engine-dropdown { background: var(--glass-strong); border-color: var(--border); border-radius: 12px; padding: 6px; transform-origin: top left; box-shadow: 0 18px 36px rgba(67,51,39,.16),inset 0 1px rgba(255,255,255,.72),inset 0 -1px rgba(105,81,63,.06); backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); }
-.engine-dropdown::before { content: ''; position: absolute; top: -5px; left: 30px; width: 9px; height: 9px; border-left: 1px solid var(--border); border-top: 1px solid var(--border); border-radius: 2px 0 0 0; background: var(--glass-strong); transform: rotate(45deg); pointer-events: none; }
-.engine-option { width: 100%; border: 0; border-radius: 8px; background: transparent; text-align: left; font-family: inherit; padding: 8px 10px; min-height: 34px; font-size: 12px; transition: background 120ms, color 120ms, transform 120ms; }
+.engine-dropdown { background: var(--glass-strong); border-color: var(--border); border-radius: 8px; padding: 5px; transform-origin: top left; box-shadow: 0 18px 36px rgba(67,51,39,.16),inset 0 1px rgba(255,255,255,.72),inset 0 -1px rgba(105,81,63,.06); backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); }
+.engine-dropdown::before { display: none; }
+.engine-option { width: 100%; border: 0; border-radius: 7px; background: transparent; justify-content: center; text-align: center; font-family: inherit; padding: 7px 8px; min-height: 34px; font-size: 13px; transition: background 120ms, color 120ms, transform 120ms; }
 .engine-option::before { display: none; }
-.engine-option::after { content: ''; width: 5px; height: 9px; margin-left: auto; border-right: 1.7px solid currentColor; border-bottom: 1.7px solid currentColor; opacity: 0; transform: rotate(45deg) scale(.55); transition: opacity 120ms, transform 160ms cubic-bezier(.16,1,.3,1); }
-.engine-option:hover { transform: translateX(1px); }
+.engine-option::after { display: none; }
+.engine-option:hover { transform: none; background: var(--bg-hover); }
 .engine-option.active { background: transparent; color: var(--accent); font-weight: 700; }
-.engine-option.active::after { opacity: 1; transform: rotate(45deg) scale(1); }
+.engine-option.active::after { display: none; }
 /* 选项也有按下反馈（仿真 .engine-choice:active） */
 .engine-option:active { box-shadow: var(--press-shadow); }
 .engine-option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }

@@ -1,6 +1,23 @@
 {
   "versions": [
     {
+      "version": "0.8.6",
+      "releaseDate": "2026-11-11",
+      "summary": "经典主题搜索引擎按钮与下拉框同步对齐等宽与无箭头对勾设计。",
+      "highlights": [
+        "经典主题下搜索引擎按钮去除展开收拢指示箭头，文字居中分布并设为 80px 宽度。",
+        "经典主题下搜索引擎按钮圆角收敛为 8px，与设置下拉选框风格成套呼应。",
+        "经典主题下搜索引擎下拉菜单去除顶部尖嘴与选项对勾，宽度严格与按钮保持等宽（80px）。",
+        "全主题统一等宽下拉体验，视觉整洁一致。"
+      ],
+      "changes": [
+        "public/app.js：engineBtn.onclick 统一移除 120px 兜底限制，全主题下拉宽度均严格取按钮实际像素宽度。",
+        "public/styles.css：.search-engine 设为 80px 宽度与 8px 圆角，.engine-arrow 设为 display: none，隐藏 .engine-dropdown::before 尖嘴与 .engine-option::after 对勾，选项文字居中对齐。",
+        "public/sw.js：Service Worker 缓存版本升级至 pabu-v30。",
+        "tests/rtc-ui.test.js 与 tests/browser/engine-dropdown.cjs：同步更新缓存版本与全主题等宽断言守卫。"
+      ]
+    },
+    {
       "version": "0.8.5",
       "releaseDate": "2026-11-11",
       "summary": "重构主题切换按钮与棱镜模式搜索引擎按钮及下拉框，去除小箭头与对勾并实现等宽设计。",

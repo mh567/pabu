@@ -3432,10 +3432,7 @@
                 event.stopPropagation();
                 const rect = engineBtn.getBoundingClientRect();
                 const wrapperRect = dropdown.parentElement.getBoundingClientRect();
-                const isPrism = document.documentElement.getAttribute('data-theme-style') === 'prism';
-                const width = isPrism
-                    ? Math.min(rect.width, window.innerWidth - 24)
-                    : Math.min(Math.max(rect.width, DROPDOWN_MIN_WIDTH), window.innerWidth - 24);
+                const width = Math.min(rect.width, window.innerWidth - 24);
                 dropdown.style.width = `${width}px`;
                 dropdown.style.left = `${rect.left - wrapperRect.left}px`;
                 dropdown.hidden = !dropdown.hidden;

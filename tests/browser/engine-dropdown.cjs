@@ -29,14 +29,8 @@ test('browser: engine dropdown animates open, selects, and toggles closed', asyn
         `下拉左缘应与搜索引擎按钮对齐，实际按钮 ${buttonBox.x}，菜单 ${menuBox.x}`);
     assert.ok(menuBox.y >= buttonBox.y + buttonBox.height,
         '下拉应展开在搜索引擎按钮下方');
-    const isPrism = await page.evaluate(() => document.documentElement.dataset.themeStyle === 'prism');
-    if (isPrism) {
-        assert.ok(Math.abs(menuBox.width - buttonBox.width) <= 1,
-            `棱镜模式下下拉宽度应与搜索引擎按钮等宽，实际菜单 ${menuBox.width}，按钮 ${buttonBox.width}`);
-    } else {
-        assert.ok(Math.abs(menuBox.width - Math.max(buttonBox.width, 120)) <= 1,
-            `经典模式下拉宽度应取触发宽度与 120px 的较大者，实际 ${menuBox.width}`);
-    }
+    assert.ok(Math.abs(menuBox.width - buttonBox.width) <= 1,
+        `下拉宽度应与搜索引擎按钮等宽，实际菜单 ${menuBox.width}，按钮 ${buttonBox.width}`);
 
     const options = dropdown.locator('.engine-option');
     assert.ok(await options.count() >= 2, '默认至少有两个搜索引擎');
