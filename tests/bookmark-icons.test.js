@@ -65,7 +65,7 @@ test('bookmark icons: editing and settings expose custom address, refresh, and l
 test('bookmark icons: service worker upgrades preserve the dedicated icon cache', () => {
     const sw = read('sw.js');
     has(sw, /pabu-bookmark-icons-v1/, 'activation cleanup preserves dedicated icon cache');
-    has(sw, /const CACHE = 'pabu-v32'/, 'new icon module is installed through a new static cache version');
+    has(sw, /const CACHE = 'pabu-v33'/, 'new icon module is installed through a new static cache version');
 });
 
 test('bookmark icons: cache and request coordination live in a shared client module', () => {
@@ -86,9 +86,45 @@ test('bookmark icons: App copies non-enumerable module methods before startup', 
     assert.equal(typeof prototype.initBookmarkIcons, 'function');
 });
 
-test('bookmark icons: visible-area observer can measure icons before they load', () => {
+test('bookmark icons: unloaded images stay outside flex layout until loaded', () => {
     const app = read('app.js');
-    has(app, /data-icon-state="idle" style="visibility:hidden"/, 'keeps the unloaded image box measurable without flashing it');
+    has(app, /data-icon-state="idle" style="display:none"/, 'the image is outside flex layout until it loads');
+});
+
+test('bookmark icons: visibility observer tracks the bookmark when its image is hidden', async () => {
+    const methods = iconModule();
+    const app = Object.create(methods);
+    const image = {};
+    const card = {
+        matches: selector => selector === '.bookmark',
+        querySelector: selector => selector === '.bookmark-icon[data-icon-mode]' ? image : null
+    };
+    image.closest = selector => selector === '.bookmark' ? card : null;
+    let observed;
+    let queued;
+    let cancelled = 0;
+    class Observer {
+        constructor(callback) { this.callback = callback; }
+        observe(target) { observed = target; }
+        unobserve() {}
+    }
+    app.queueBookmarkIcon = target => { queued = target; };
+    app.cancelBookmarkIcon = () => { cancelled++; };
+    const source = read('bookmark-icons.js');
+    has(source, /bookmarkIconObserver\.observe\(this\.bookmarkIconObserverTarget\(img\)\)/, 'observes the card, which remains measurable while the image is hidden');
+    await withGlobals({
+        window: { IntersectionObserver: Observer, addEventListener() {} },
+        IntersectionObserver: Observer,
+        document: { addEventListener() {} }
+    }, async () => {
+        app.initBookmarkIcons();
+        app.bookmarkIconObserver.observe(app.bookmarkIconObserverTarget(image));
+        assert.equal(observed, card);
+        app.bookmarkIconObserver.callback([{ target: card, isIntersecting: true, intersectionRatio: 1 }]);
+        app.bookmarkIconObserver.callback([{ target: card, isIntersecting: false, intersectionRatio: 0 }]);
+    });
+    assert.equal(queued, image);
+    assert.equal(cancelled, 0, 'scrolling away does not abort an already queued icon request');
 });
 
 test('bookmark icons: local and reserved hosts bypass the server icon endpoint', () => {
@@ -449,4 +485,53 @@ test('bookmark icons: cached image replacements advance the request sequence', a
     });
     assert.equal(img.dataset.iconRequest, '1');
     assert.deepEqual(revoked, ['blob:old']);
+});
+
+test('bookmark icons: LAN discovery uses declared icons and remembers the successful URL', async () => {
+    const app = Object.create(iconModule());
+    app.readBookmarkIcon = async () => null;
+    app.discoverLocalBookmarkIcons = async () => ['http://192.168.1.1/web/favicon.hash.ico'];
+    const attempted = [];
+    let saved;
+    app.loadBookmarkImage = async url => { attempted.push(url); if (!url.includes('favicon.hash')) throw new Error('404'); return url; };
+    app.writeBookmarkIcon = async (_key, record) => { saved = record; };
+    const task = { key: 'local:http://192.168.1.1', mode: 'local', url: new URL('http://192.168.1.1/'), controller: new AbortController() };
+    await withGlobals({ navigator: { onLine: true }, location: { origin: 'https://pabu.test' } }, async () => {
+        assert.equal((await app.loadDirectBookmarkIcon(task)).src, 'http://192.168.1.1/web/favicon.hash.ico');
+        assert.equal(saved.src, 'http://192.168.1.1/web/favicon.hash.ico');
+        app.readBookmarkIcon = async () => saved;
+        app.discoverLocalBookmarkIcons = async () => { throw new Error('must reuse cached URL'); };
+        assert.equal((await app.loadDirectBookmarkIcon(task)).src, saved.src);
+    });
+});
+
+test('bookmark icons: LAN pages without CORS still try the LuCI theme favicon', async () => {
+    const app = Object.create(iconModule());
+    app.readBookmarkIcon = async () => null;
+    app.discoverLocalBookmarkIcons = async () => [];
+    app.writeBookmarkIcon = async () => {};
+    app.loadBookmarkImage = async url => { if (!url.endsWith('/luci-static/argon/icon/favicon-32x32.png')) throw new Error('404'); return url; };
+    const task = { key: 'local:http://192.168.1.1', mode: 'local', url: new URL('http://192.168.1.1/'), controller: new AbortController() };
+    await withGlobals({ navigator: { onLine: true }, location: { origin: 'https://pabu.test' } }, async () => {
+        assert.equal((await app.loadDirectBookmarkIcon(task)).src, 'http://192.168.1.1/luci-static/argon/icon/favicon-32x32.png');
+    });
+});
+
+test('bookmark icons: LAN discovery retries the web entry when the root redirect lacks CORS', async () => {
+    const app = Object.create(iconModule());
+    const requests = [];
+    const link = { getAttribute: name => name === 'rel' ? 'shortcut icon' : 'favicon.hash.ico' };
+    await withGlobals({
+        DOMParser: class { parseFromString() { return { querySelectorAll: () => [link] }; } },
+        fetch: async (url, options) => {
+            requests.push(url);
+            assert.equal(options.credentials, 'omit');
+            if (requests.length === 1) throw new TypeError('Failed to fetch');
+            return { ok: true, url, headers: new Headers({ 'content-type': 'text/html' }), body: new Blob(['<html>']).stream() };
+        }
+    }, async () => {
+        const task = { url: new URL('http://192.168.1.1:8096/'), controller: new AbortController() };
+        assert.deepEqual(await app.discoverLocalBookmarkIcons(task), ['http://192.168.1.1:8096/web/favicon.hash.ico']);
+        assert.deepEqual(requests, ['http://192.168.1.1:8096/', 'http://192.168.1.1:8096/web/']);
+    });
 });

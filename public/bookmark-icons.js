@@ -18,14 +18,21 @@
             this.bookmarkIconCacheEpoch = 0;
             this.bookmarkIconActive = 0;
             this.bookmarkIconObserver = 'IntersectionObserver' in window
-                ? new IntersectionObserver(entries => entries.forEach(entry => entry.isIntersecting
-                    ? this.queueBookmarkIcon(entry.target, entry.intersectionRatio)
-                    : this.cancelBookmarkIcon(entry.target)), { rootMargin: '0px' })
+                ? new IntersectionObserver(entries => entries.forEach(entry => {
+                    const img = entry.target.matches?.('.bookmark')
+                        ? entry.target.querySelector('.bookmark-icon[data-icon-mode]')
+                        : entry.target;
+                    if (entry.isIntersecting && img) this.queueBookmarkIcon(img, entry.intersectionRatio);
+                }), { rootMargin: '0px' })
                 : null;
             window.addEventListener('online', () => this.resumeBookmarkIcons());
             window.addEventListener('offline', () => this.pauseBookmarkIcons());
             document.addEventListener('visibilitychange', () => document.hidden ? this.pauseBookmarkIcons() : this.resumeBookmarkIcons());
             if ('caches' in window) caches.open(BOOKMARK_ICON_CACHE).then(cache => this.trimBookmarkIconCache(cache)).catch(() => {});
+        }
+
+        bookmarkIconObserverTarget(img) {
+            return img.closest?.('.bookmark') || img;
         }
 
         bookmarkIconHash(value) {
@@ -320,8 +327,7 @@
             }
         }
 
-        async readBookmarkIconBytes(response, signal) {
-            const limit = 2 * 1024 * 1024;
+        async readBookmarkIconBytes(response, signal, limit = 2 * 1024 * 1024) {
             const declared = Number(response.headers.get('content-length'));
             if (Number.isFinite(declared) && declared > limit) {
                 await response.body?.cancel().catch(() => {});
@@ -428,12 +434,50 @@
             });
         }
 
+        async discoverLocalBookmarkIcons(task) {
+            const controller = new AbortController();
+            const abort = () => controller.abort();
+            task.controller.signal.addEventListener('abort', abort, { once: true });
+            if (task.controller.signal.aborted) controller.abort();
+            const timer = setTimeout(abort, 1500);
+            try {
+                const options = { credentials: 'omit', referrerPolicy: 'no-referrer', signal: controller.signal };
+                let response;
+                try { response = await fetch(task.url.href, options); }
+                catch (error) {
+                    if (controller.signal.aborted) throw error;
+                    response = await fetch(new URL('/web/', task.url.origin).href, options);
+                }
+                if (!response.ok || !(response.headers.get('content-type') || '').includes('text/html')) return [];
+                const bytes = await this.readBookmarkIconBytes(response, controller.signal, 256 * 1024);
+                const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'text/html');
+                const base = new URL(response.url);
+                // Only probe this bookmarked service, even if its HTML declares another host.
+                if (base.origin !== task.url.origin) return [];
+                return [...doc.querySelectorAll('link[rel]')]
+                    .filter(link => /(?:^|\s)(?:icon|apple-touch-icon)(?:\s|$)/i.test(link.getAttribute('rel')))
+                    .map(link => { try { return new URL(link.getAttribute('href'), base); } catch { return null; } })
+                    .filter(url => url && url.origin === base.origin && !url.username && !url.password)
+                    .map(url => url.href).slice(0, 6);
+            } catch (error) {
+                if (task.controller.signal.aborted) throw error;
+                return [];
+            } finally {
+                clearTimeout(timer);
+                task.controller.signal.removeEventListener('abort', abort);
+            }
+        }
+
         async loadDirectBookmarkIcon(task, { refresh = false } = {}) {
             const url = task.url;
             const cached = refresh ? null : await this.readBookmarkIcon(task.key);
             if ((cached?.blob || cached?.failure) && Math.max(cached?.nextCheckAt || 0, cached?.nextRetryAt || 0) > Date.now()) return cached;
             if (cached?.blob) await this.showBookmarkIconRecord(task, cached);
             if (!navigator.onLine) return cached;
+            if (task.mode === 'local' && cached?.src && cached.nextCheckAt > Date.now()) {
+                try { return { ...cached, src: await this.loadBookmarkImage(cached.src, 1500, task.controller.signal) }; }
+                catch (error) { if (task.controller.signal.aborted) throw error; }
+            }
             if (url.origin === location.origin) {
                 const response = await fetch(url, { cache: 'no-store', credentials: 'omit', ...(task.controller.fetchSignal ? { signal: task.controller.fetchSignal } : {}) });
                 if (task.controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -447,7 +491,9 @@
             }
             if (task.mode === 'local') {
                 const started = Date.now();
-                for (const path of ['/favicon.ico', '/favicon.png', '/apple-touch-icon.png']) {
+                const declared = await this.discoverLocalBookmarkIcons(task);
+                const candidates = [...new Set([...declared, ...['/favicon.ico', '/favicon.png', '/apple-touch-icon.png', '/luci-static/argon/icon/favicon-32x32.png', '/luci-static/argon/favicon.ico', '/luci-static/bootstrap/favicon.ico'].map(path => new URL(path, url.origin).href)])];
+                for (const path of candidates) {
                     const remaining = 8000 - (Date.now() - started);
                     if (remaining <= 0) break;
                     const candidate = new URL(path, url.origin);
@@ -465,7 +511,10 @@
                             }
                             continue;
                         }
-                        return { src: await this.loadBookmarkImage(candidate.href, Math.min(3000, remaining), task.controller.signal) };
+                        const src = await this.loadBookmarkImage(candidate.href, Math.min(1000, remaining), task.controller.signal);
+                        const record = { src, nextCheckAt: Date.now() + 30 * 86400000 };
+                        await this.writeBookmarkIcon(task.key, record, { image: false, epoch: task.epoch, signal: task.controller.signal });
+                        return record;
                     }
                     catch (error) { if (error.name === 'AbortError') throw error; }
                 }
@@ -554,7 +603,7 @@
             const visible = [];
             for (const img of document.querySelectorAll('.bookmark-icon[data-icon-mode][data-icon-state="waiting"]')) {
                 if (!img.isConnected) continue;
-                const box = img.getBoundingClientRect();
+                const box = this.bookmarkIconObserverTarget(img).getBoundingClientRect();
                 if (box.bottom >= 0 && box.top <= innerHeight) visible.push(img);
             }
             visible.forEach(img => { img.dataset.iconState = 'idle'; this.queueBookmarkIcon(img, 1); });
@@ -589,7 +638,7 @@
                 if (this.bookmarkIconTasks.get(task.key) === task) this.bookmarkIconTasks.delete(task.key);
             }
             this.bookmarkIconQueue.length = 0;
-            for (const img of document.querySelectorAll('.bookmark-icon[data-icon-mode]')) this.bookmarkIconObserver?.unobserve(img);
+            for (const img of document.querySelectorAll('.bookmark-icon[data-icon-mode]')) this.bookmarkIconObserver?.unobserve(this.bookmarkIconObserverTarget(img));
         }
 
         resumeBookmarkIcons() {
@@ -597,7 +646,7 @@
             for (const img of document.querySelectorAll('.bookmark-icon[data-icon-mode]')) {
                 if (img.dataset.iconState !== 'loaded') {
                     if (img.dataset.iconState === 'failed') img.dataset.iconState = 'idle';
-                    if (this.bookmarkIconObserver) this.bookmarkIconObserver.observe(img);
+                    if (this.bookmarkIconObserver) this.bookmarkIconObserver.observe(this.bookmarkIconObserverTarget(img));
                     else this.queueBookmarkIcon(img, 0);
                 }
             }
