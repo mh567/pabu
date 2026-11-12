@@ -6,3 +6,4 @@
 - 完成后执行 `node --test tests/*.test.js`、相关 `node --check` 和 `git diff --check`。
 - 变更功能边界时同步更新 README、架构说明和当前工作记录。
 - 变更部署方式时同步更新 `pabu.sh`、`DEPLOYMENT.md` 和 README 部署章节，并对管理脚本执行 `bash -n` 检查。
+- 发布前必须同步 `package.json`、`package-lock.json`（含根 packages 条目）、`version.json` 和 `CHANGELOG.json` 首条版本，Git tag 使用相同版本。`tests/release-version.test.js` 覆盖一致性、真实版本接口和连续两次更新的识别行为。
