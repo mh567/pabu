@@ -296,6 +296,7 @@ const { createSqliteBackend } = require('./lib/session-sqlite');
 const { createTransferStore } = require('./lib/transfer-store');
 const { createRtcSessionStore } = require('./lib/rtc-session');
 const { defaultIconService } = require('./lib/icon-service');
+const { createIconHandler } = require('./lib/icon-http-handler');
 let navigation, syncStore, transferStore, rtcSessions, db, sessionStore;
 
 // 文件分享的默认值按 1 核 1G 的小机器定：单文件 64 MiB、总量 256 MiB。
@@ -431,10 +432,9 @@ app.use((req, res, next) => {
     res.header('X-Frame-Options', 'SAMEORIGIN');
     res.header('X-XSS-Protection', '1; mode=block');
     res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    // img-src 与 service.js 的 safeAvatarUrl 是同一份白名单的浏览器侧兜底：
-    // 时间线上 X 的头像来自 pbs.twimg.com，除此之外不允许外站图片被加载。
+    // 书签图片使用本机 Blob 缓存、HTTPS 站点和浏览器直连的局域网 HTTP 地址。
     res.header('Content-Security-Policy',
-        "script-src 'self' 'unsafe-inline'; img-src 'self' data: https:;");
+        "script-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:;");
 
     // CORS
     const origin = req.headers.origin;
@@ -774,28 +774,7 @@ app.get('/api/config', publicReadLimit, (req, res) => {
     res.json(navigation.read('site').config);
 });
 
-app.get('/api/icon', publicReadLimit, async (req, res) => {
-    const rawUrl = req.query.url;
-    if (!rawUrl || typeof rawUrl !== 'string') {
-        return res.status(400).json({ error: '请提供有效的网址参数' });
-    }
-    const validated = defaultIconService.validateUrl(rawUrl);
-    if (!validated) {
-        return res.status(400).json({ error: '无效或不受支持的网址' });
-    }
-    try {
-        const icon = await defaultIconService.getIcon(rawUrl);
-        if (!icon || !icon.data) {
-            return res.status(404).json({ error: '未获取到网站图标' });
-        }
-        res.setHeader('Content-Type', icon.contentType);
-        res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        return res.send(icon.data);
-    } catch {
-        return res.status(500).json({ error: '获取图标失败' });
-    }
-});
+app.get('/api/icon', createIconHandler(defaultIconService, resolveClientIp));
 
 app.post('/api/config', rateLimit, requireAdmin, (req, res) => {
     res.status(409).json({ error: '站点导航请在管理后台编辑并保存' });
@@ -2098,4 +2077,5 @@ setInterval(() => {
         console.error('[Transfer] 清理失败:', error.message);
     });
     rtcSessions?.sweep();
+    defaultIconService.sweep(now);
 }, 60000).unref();

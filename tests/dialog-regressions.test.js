@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const bookmarkIconMethods = require('../public/bookmark-icons');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
 const adminCss = fs.readFileSync(path.join(__dirname, '..', 'public/admin.css'), 'utf8');
@@ -42,7 +43,7 @@ function mediaBlock(css, query, requiredIn) {
 }
 
 function loadApp(document) {
-    const window = {};
+    const window = { BookmarkIconMethods: bookmarkIconMethods };
     vm.runInNewContext(source.replace(exportPoint, '    window.AppForTest = App;\n' + exportPoint), {
         window,
         document,

@@ -332,6 +332,7 @@
                 host: $('#grid'),
                 changed: this.saveLocalNavigation.bind(this)
             });
+            this.initBookmarkIcons();
             this.init();
         }
 
@@ -2909,6 +2910,7 @@
                 render();
                 editor.querySelector('.local-engine-item:last-child input').focus();
             };
+            $('#localClearIconCacheBtn').onclick = () => this.clearBookmarkIconCache();
             render();
             this.syncLocalSelects();
             this.setLocalDrawerOpen(true);
@@ -3294,7 +3296,19 @@
             if (editing) {
                 fragment.appendChild(html(`<button type="button" class="category-add">＋ 添加分类</button>`));
             }
+            for (const img of grid.querySelectorAll('.bookmark-icon[data-icon-mode]')) {
+                this.bookmarkIconObserver?.unobserve(img);
+                this.cancelBookmarkIcon(img);
+                const objectUrl = this.bookmarkIconObjectUrls.get(img);
+                if (objectUrl) { URL.revokeObjectURL(objectUrl); this.bookmarkIconObjectUrls.delete(img); }
+                img.onload = img.onerror = null;
+                img.removeAttribute('src');
+            }
             grid.replaceChildren(fragment);
+            for (const img of grid.querySelectorAll('.bookmark-icon[data-icon-mode]')) {
+                if (this.bookmarkIconObserver) this.bookmarkIconObserver.observe(img);
+                else this.queueBookmarkIcon(img, 0);
+            }
         }
 
         createBookmark(bm, catIdx, bmIdx, surface = this.homeSurface) {
@@ -3313,9 +3327,11 @@
             // 图片加载失败时回退到首字字母牌。
             const showIcons = surface.getConfig().showBookmarkIcons === true;
             const initial = Array.from(String(bm.title || '').trim())[0] || '?';
-            const iconUrl = bm.url ? `/api/icon?url=${encodeURIComponent(bm.url)}` : '';
+            let iconMode = 'auto';
+            try { if (bm.iconUrl) iconMode = 'custom'; else if (this.bookmarkIconIsPrivate(new URL(bm.url))) iconMode = 'local'; } catch {}
+            const iconUrl = bm.iconUrl || bm.url;
             const icon = showIcons
-                ? `<img class="bookmark-icon" src="${this.esc(iconUrl)}" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable="false" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='grid'"><span class="bookmark-icon bookmark-icon-fallback" style="display:none" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
+                ? `<img class="bookmark-icon" data-icon-mode="${iconMode}" data-bookmark-url="${this.esc(iconUrl)}"${bm.iconUrl ? ` data-icon-url="${this.esc(bm.iconUrl)}"` : ''} data-icon-state="idle" style="visibility:hidden" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable="false"><span class="bookmark-icon bookmark-icon-fallback" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
                 : '';
             return html(`
                 <a class="bookmark${showIcons ? ' has-icon' : ' bookmark-text-only'}"${attrs} href="${this.esc(bm.url)}" target="_blank" rel="noopener" title="${this.esc(bm.title)}">
@@ -3944,13 +3960,18 @@
         }
 
         /** 书签字段校验：标题非空、URL 必须是 http/https。 */
-        bookmarkFieldError([title, url]) {
+        bookmarkFieldError([title, url, iconUrl = '']) {
             if (!title || !title.trim()) return '请填写标题';
             const trimmed = (url || '').trim();
             if (!trimmed) return '请填写网址';
             let parsed;
             try { parsed = new URL(trimmed); } catch (e) { return '网址格式不正确'; }
             if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '网址必须以 http:// 或 https:// 开头';
+            if (iconUrl.trim()) {
+                if (iconUrl.trim().length > 2048) return '图标地址不能超过 2048 个字符';
+                try { parsed = new URL(iconUrl.trim()); } catch { return '图标地址格式不正确'; }
+                if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || iconUrl.trim().includes('#')) return '图标地址必须使用无凭据且不含片段的 HTTP/HTTPS 地址';
+            }
             return '';
         }
 
@@ -3960,13 +3981,13 @@
             if (!cat) return;
             const result = await this.showUiDialog({
                 title: `为「${cat.name}」添加导航`,
-                fields: [{ label: '标题' }, { label: '网址', placeholder: 'https://' }],
+                fields: [{ label: '标题' }, { label: '网址', placeholder: 'https://' }, { label: '自定义图标地址（可选）', placeholder: 'https://' }],
                 confirmText: '添加',
                 validate: (values, choices) => this.bookmarkFieldError(values)
             });
             if (!result) return;
-            const [title, url] = result.values;
-            cat.bookmarks.push({ id: uid(), title: title.trim(), url: url.trim() });
+            const [title, url, iconUrl] = result.values;
+            cat.bookmarks.push({ id: uid(), title: title.trim(), url: url.trim(), ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}) });
             this.renderGrid(surface);
             surface.changed();
             // 提示语要指向真正能提交这次改动的那颗按钮。
@@ -3981,16 +4002,34 @@
             const result = await this.showUiDialog({
                 title: '编辑导航',
                 message: `所属分类：${surface.getConfig().categories[catIdx].name}`,
-                fields: [{ label: '标题', value: bm.title }, { label: '网址', value: bm.url }],
+                fields: [{ label: '标题', value: bm.title }, { label: '网址', value: bm.url }, { label: '自定义图标地址（可选）', value: bm.iconUrl || '', placeholder: '留空时自动获取' }],
+                options: [{ kind: 'checkbox', name: 'refreshIcon', value: 'true', label: '保存并刷新图标' }],
                 confirmText: '保存',
                 validate: values => this.bookmarkFieldError(values)
             });
             if (!result) return;
-            const [title, url] = result.values;
+            const [title, url, iconUrl] = result.values;
             bm.title = title.trim();
             bm.url = url.trim();
-            this.renderGrid(surface);
+            if (iconUrl.trim()) bm.iconUrl = iconUrl.trim(); else delete bm.iconUrl;
             surface.changed();
+            if (result.choices.refreshIcon) {
+                const message = await this.refreshBookmarkIcon(bm);
+                if (message) this.showToast(message, 'error');
+                else { this.showToast('图标已刷新'); this.renderGrid(surface); }
+                if (message) {
+                    const card = [...surface.host.querySelectorAll('.bookmark[data-cat][data-bm]')].find(node => +node.dataset.cat === catIdx && +node.dataset.bm === bmIdx);
+                    if (card) {
+                        card.href = bm.url;
+                        card.title = bm.title;
+                        card.querySelector('.bookmark-title').textContent = bm.title;
+                        const remove = card.querySelector('.bookmark-del');
+                        if (remove) { remove.title = `删除导航 ${bm.title}`; remove.setAttribute('aria-label', `删除导航 ${bm.title}`); }
+                    }
+                }
+            } else {
+                this.renderGrid(surface);
+            }
         }
 
         async deleteHomeBookmark(catIdx, bmIdx, surface = this.homeSurface) {
@@ -5419,6 +5458,10 @@
             return String(str ?? '').replace(/[&<>"']/g, char => ESC_MAP[char]);
         }
     }
+
+    const bookmarkIconMethods = Object.getOwnPropertyDescriptors(window.BookmarkIconMethods);
+    delete bookmarkIconMethods.constructor;
+    Object.defineProperties(App.prototype, bookmarkIconMethods);
 
     let app;
     if (document.readyState === 'loading') {

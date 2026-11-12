@@ -39,8 +39,9 @@ function validate(value) {
         if (!text(c.name)) fail('分类名称无效');
         unique(c.bookmarks, 2000); count += c.bookmarks.length;
         for (const b of c.bookmarks) {
-            keys(b, ['id', 'title', 'url']);
+            keys(b, ['id', 'title', 'url', 'iconUrl']);
             if (!text(b.title) || !url(b.url) || ids.has(b.id)) fail('导航链接无效');
+            if (b.iconUrl !== undefined && (!url(b.iconUrl) || b.iconUrl.length > 2048 || b.iconUrl.includes('#'))) fail('导航图标地址无效');
             ids.add(b.id);
         }
     }

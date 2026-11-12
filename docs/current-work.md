@@ -116,8 +116,25 @@
 - 本轮回退与吞吐修复验证：`node --test tests/*.test.js` 共 394 项通过；`node --test tests/browser/rtc-fallback.cjs` 1 项通过。两个独立 Chrome 进程、20 MiB 本地直连基准 36 MB/s，发送循环背压等待 0 次。移动网络到家庭宽带的实际速率未在本地复现为代码瓶颈，需要用 `chrome://webrtc-internals` 观察选中的候选对、RTT 与可用上行带宽。
 - 本轮实时传文件优化验证：`node --test tests/*.test.js` 共 399 项通过；`tests/browser/rtc-fallback.cjs` 1 项通过；新增 `tests/browser/rtc-throughput.cjs` 双 Chrome 进程 16 MiB 直连闭环通过，下载内容 SHA-256 一致。页内计时显示发送循环与接收循环速率基本一致，瓶颈在 DataChannel 本身。本机单次对比：16 KiB 分片约 41 MiB/s，8 KiB 约 31 MiB/s，32 KiB 约 5 MiB/s，64 KiB 约 6 MiB/s；4 MiB 高水位与深度 2/4 预读同样明显变慢，最终保持 16 KiB 分片、1 MiB 高水位、256 KiB 低水位和深度 1 预读。运行环境负载波动较大，基准只作相对比较，不断言绝对吞吐。
 - 本轮网站真实图标验证：`node --test tests/*.test.js` 共 409 项通过。新增 7 项图标抓取服务单元用例与 3 项 HTTP 接口集成用例，覆盖协议校验、元数据过滤、HTML 提取、魔数识别、favicon 回退、单飞行并发合并、负缓存以及 404/安全响应头。`node --check` 检查通过，`git diff --check` 通过。ego 浏览器实测确认默认不显示图标，开启后图标位于文字左侧，实际获取真实外站图片并裁剪缩放为 16px、4px 圆角规格，失败时显示首字兜底。
-- Pabu 项目目录内没有安装依赖；管理脚本验证在临时目录执行了 `npm ci`，测试目录已清理。Pabu 首次运行前需执行 `npm ci` 或使用 `pabu.sh install`。
+- 验收初期仓库缺依赖；随后按锁文件执行 `npm ci --no-audit --no-fund` 安装 111 个既有包，未修改 `package.json` 或锁文件。npm 拦截 3 个包安装脚本，但 bcrypt、SQLite 冒烟和全量 HTTP 测试通过。
 
 ## 边界
 
 导航同步内容由服务端保存并可读取，不提供端到端加密；临时文本分享使用浏览器加密。实时传文件依赖 WebRTC 与 HTTPS，默认只配公共 STUN，未配置 `PABU_RTC_TURN_SECRET` 时不启用 TURN，跨对称 NAT 或严格防火墙可能直连失败，需要回退服务器中转。信令服务器能看到会话元数据、SDP 与 ICE 候选，看不到文件内容；4 位确认码用于发现信令被替换，需要双方人工核对。5 位码空间约 9 万种，安全性依赖单接收方、短 TTL、加入限流与发送方确认。少量未引用的旧功能 CSS 规则仍保留，暂未影响界面与接口。
+
+## 2026-11-12 书签图标共享缓存优化（浏览器验收完成）
+
+- 服务端与端侧 worktree 已集成到当前工作区，基线为 `9fd1090`，未提交。公网图标按 origin 共用服务端缓存，浏览器使用独立持久缓存；私网与自定义图标由浏览器直连，图标默认关闭。
+- 独立审查发现的四项问题已修复：图片结构校验、端侧流式 2 MiB 限制与凭据省略、真实 HTTP handler 状态及响应头测试、第三方通用占位图识别。实施计划中的旧工作区内容已标为历史快照。
+- 图标与相关前端聚焦组 173 项通过；7 个变更 JavaScript 文件的 `node --check` 通过，`git diff --check` 通过。
+- 按锁文件执行 `npm ci --no-audit --no-fund` 安装 111 个已声明包，依赖清单未变；版本发布时只更新 `package.json` 和 `package-lock.json` 中的项目版本号。bcrypt 运算与 SQLite 内存库冒烟通过。
+- 全量 `node --test --test-reporter=dot tests/*.test.js` 通过，共 476 项。
+- 关闭第三方回退后，真实抓取 Gemini、UHDNow、iguopin、linux.do 与 habu.emolu.cn 均成功。来源依次为 HTML、HTML、manifest、HTML、HTML；分别得到 PNG 61,823 字节（1,252 ms）、PNG 123,237 字节（952 ms）、ICO 16,958 字节（199 ms）、SVG 542 字节（351 ms）、SVG 577 字节（1,201 ms）。每站首次抓取 1 至 3 次，随后的读取都命中共享缓存且额外外网请求为 0。
+- ego-browser TaskSpace 18 实测首页默认关闭图标，开启后 9/9 张图标加载。普通刷新命中本机缓存，`/api/icon` 请求数为 0；离线重绘时 8/8 个自动获取的公网图标从本机缓存显示。两标签共享 16 条 Cache Storage 记录，第二标签没有重复请求图标接口。390px 视口无横向溢出，图标位于文字左侧。
+- 浏览器实际验证自定义 LuCI 图标地址、手动刷新成功，以及刷新失败时保留当前图片并提示“图标刷新失败，已保留当前图标”。LuCI 登录页可达且需要登录；其 Argon 图标为 `/luci-static/argon/icon/favicon-32x32.png`，通过自定义地址加载成功。根目录常见 favicon 候选均为 404，因此需手动配置该非根路径。
+- 浏览器验收发现并修复三项问题：类原型方法不可枚举导致 App 初始化时缺少图标方法；图片 `display:none` 导致观察器测得 0×0；CSP 未放行 Blob 与局域网 HTTP 图标。对应改为按属性描述符混入、初始用 `visibility:hidden` 保留尺寸、CSP 放行 `blob:` 和 `http:`。对话框测试夹具同步加载图标方法。
+- LuCI 的跨源私网图片不提供 CORS，无法写入 Pabu 的 Cache Storage。在线时实际图标可加载，离线时回退首字母。没有提交 LuCI 认证信息。
+- 首次预览尝试因快照超时与旧 TaskSpace 17 不存在而中断；用户明确要求后使用 TaskSpace 18 完成验收。各临时安装目录和服务已清理；当时尚未提交或发布。
+- 版本推进到 `0.8.7`，书签真实图标支持端侧缓存与服务端共享缓存、自定义图标、手动刷新和本机缓存清理；Service Worker 缓存更新至 pabu-v32。
+- `0.8.7` 发布前复验：`node --test tests/*.test.js` 共 476 项通过；本次涉及的 JavaScript `node --check`、JSON 版本一致性检查和 `git diff --check` 均通过。TaskSpace 18 浏览器验收确认图标显示、缓存复用、跨标签共享、同步与 `/admin` 流程。
+- 局域网图标仍受目标站点认证和 CORS 影响：LuCI 需配置实际图标路径；目标不提供 CORS 时在线可显示，离线不能进入 Pabu 持久缓存。

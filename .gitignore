@@ -27,6 +27,9 @@ pabu.db-shm
 # Temporary encrypted transfer chunks
 transfers/
 
+# Shared anonymous website icon cache
+.icon-cache/
+
 # AI assistant files
 CLAUDE.md
 .claude/

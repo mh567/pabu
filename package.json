@@ -1,6 +1,6 @@
 {
   "name": "pabu",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "A self-hosted navigation page with navigation editing, multi-device sync, and encrypted text sharing",
   "main": "server.js",
   "scripts": {

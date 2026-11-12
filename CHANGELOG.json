@@ -1,6 +1,25 @@
 {
   "versions": [
     {
+      "version": "0.8.7",
+      "releaseDate": "2026-11-12",
+      "summary": "优化书签真实图标的获取与缓存，并支持自定义图标和手动刷新。",
+      "highlights": [
+        "开启书签图标后，浏览器会缓存已获取的图标，刷新页面可复用本机缓存。",
+        "服务端按网站来源共享抓取结果，减少重复请求并对失败站点退避重试。",
+        "支持设置单个书签的自定义图标、手动刷新图标和清理本机图标缓存。",
+        "局域网图标由浏览器直接获取，书签图标仍默认关闭。"
+      ],
+      "changes": [
+        "public/bookmark-icons.js：增加 Cache Storage 缓存、请求去重、可见区优先加载及本机缓存清理。",
+        "lib/icon-service.js 与 lib/icon-http-handler.js：增加按 origin 共享的有界缓存、图标结构校验、重验证、失败退避和 SSRF 防护。",
+        "public/app.js 与 public/navigation-schema.js：支持编辑自定义图标地址、手动刷新，并通过现有导航配置路径保留 iconUrl。",
+        "server.js：提供图标获取接口、独立限流与缓存响应头；第三方回退默认关闭。",
+        "public/sw.js：静态资源缓存更新至 pabu-v32，并保留书签图标独立缓存。",
+        "新增端侧缓存、服务端缓存和真实 HTTP handler 测试，更新设计、部署与项目说明。"
+      ]
+    },
+    {
       "version": "0.8.6",
       "releaseDate": "2026-11-11",
       "summary": "经典主题搜索引擎按钮与下拉框同步对齐等宽与无箭头对勾设计。",

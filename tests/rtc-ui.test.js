@@ -13,8 +13,8 @@ const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const filePage = fs.readFileSync(path.join(root, 'public/file.html'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'public/styles.css'), 'utf8');
 
-test('首页先加载实时传输模块，再启动应用', () => {
-    assert.match(index, /<script src="rtc-transfer\.js"><\/script>\s*<script src="app\.js"><\/script>/);
+test('首页先加载实时传输与图标模块，再启动应用', () => {
+    assert.match(index, /<script src="rtc-transfer\.js"><\/script>\s*<script src="bookmark-icons\.js"><\/script>\s*<script src="app\.js"><\/script>/);
 });
 
 test('超级搜索框把 5 位数字识别为实时取件码', () => {
@@ -107,6 +107,6 @@ test('直连建立后显示确认码，中转回退会送达取件码', () => {
 });
 
 test('Service Worker 缓存实时传输模块', () => {
-    assert.match(sw, /const CACHE = 'pabu-v30'/);
+    assert.match(sw, /const CACHE = 'pabu-v32'/);
     assert.match(sw, /'\/rtc-transfer\.js'/);
 });

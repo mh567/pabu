@@ -145,6 +145,35 @@ test('HTTP: 检查→创建→两台设备连接→读写版本冲突→刷新�
     assert.equal(listing.invites.filter((i) => i.used).length, 1, '连接既有空间不消耗邀请码');
 });
 
+test('HTTP: 自定义书签图标地址随创建、同步写入和另一设备读取保留', async t => {
+    const f = await ready(t);
+    const cookie = await f.admin();
+    const invite = await f.newInvite(cookie);
+    const proof = await spaceProof('图标地址同步口令');
+    const withIcon = iconUrl => ({
+        ...CONFIG,
+        categories: [{
+            ...CONFIG.categories[0],
+            bookmarks: [{ ...CONFIG.categories[0].bookmarks[0], iconUrl }]
+        }]
+    });
+    const createdResponse = await f.app.request('/api/sync/space/create', {
+        body: { proof, inviteCode: invite.code, operationId: 'icon-url-create', config: withIcon('https://cdn.example/icon-v1.png'), modules: {} }
+    });
+    assert.equal(createdResponse.status, 200);
+    const created = await createdResponse.json();
+    const second = await (await f.connect(proof, 'icon-url-second')).json();
+    let readBack = await (await f.read(second.deviceToken)).json();
+    assert.equal(readBack.config.categories[0].bookmarks[0].iconUrl, 'https://cdn.example/icon-v1.png');
+
+    const saved = await f.write(created.deviceToken, {
+        revision: 1, operationId: 'icon-url-write', config: withIcon('https://cdn.example/icon-v2.png'), modules: {}
+    });
+    assert.equal(saved.status, 200);
+    readBack = await (await f.read(second.deviceToken)).json();
+    assert.equal(readBack.config.categories[0].bookmarks[0].iconUrl, 'https://cdn.example/icon-v2.png');
+});
+
 test('HTTP: 真并发创建——同一个口令只有一路成功，只烧掉一张邀请码', async (t) => {
     const f = await ready(t);
     const cookie = await f.admin();

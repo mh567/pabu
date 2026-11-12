@@ -1,7 +1,8 @@
-const CACHE = 'pabu-v30';
+const CACHE = 'pabu-v32';
+const ICON_CACHE = 'pabu-bookmark-icons-v1';
 const ASSETS = [
     '/', '/index.html', '/styles.css', '/admin.css', '/themes.css',
-    '/fonts/inter-tight-latin-variable.woff2', '/app.js', '/share-code.js',
+    '/fonts/inter-tight-latin-variable.woff2', '/app.js', '/bookmark-icons.js', '/share-code.js',
     '/navigation-schema.js', '/local-navigation.js', '/rtc-transfer.js', '/lib/qrcode.js',
     '/favicon.svg', '/icon.svg', '/manifest.json'
 ];
@@ -12,7 +13,7 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE && key !== ICON_CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', event => {

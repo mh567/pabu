@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const stylesCss = fs.readFileSync(path.join(__dirname, '..', 'public/styles.css'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'public/index.html'), 'utf8');
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
+const iconSource = fs.readFileSync(path.join(__dirname, '..', 'public/bookmark-icons.js'), 'utf8');
 const adminCss = fs.readFileSync(path.join(__dirname, '..', 'public/admin.css'), 'utf8');
 const adminCode = stripComments(adminCss);
 
@@ -549,12 +550,14 @@ test('显示图标开关真的渲染出图标，关掉则退回纯文字卡', ()
     // 开关必须参与渲染判断；默认不显示，只有显式开启 true 才渲染。
     assert.match(bm, /showBookmarkIcons === true/, '按本表面的配置判断是否显示图标');
     assert.match(bm, /surface\.getConfig\(\)/, '读的是当前表面（首页 / 站点画布）的配置');
-    assert.match(bm, /class="bookmark-icon"[^>]*aria-hidden="true"/, '图标是装饰节点，不进入无障碍树');
+    assert.match(bm, /<img class="bookmark-icon"[^>]*data-icon-mode=/, '图标由可见区加载器填入地址');
+    assert.match(bm, /aria-hidden="true"/, '图标是装饰节点，不进入无障碍树');
     assert.match(bm, /has-icon/, '带图标的卡片有独立钩子类');
     assert.match(bm, /bookmark-text-only/, '关掉图标时退回纯文字卡');
     // 图标获取网站真实图片，并通过首字字母牌兜底
-    assert.match(bm, /<img class="bookmark-icon"[^>]*src="\$\{this\.esc\(iconUrl\)\}"/, '渲染真实图片');
-    assert.match(bm, /\/api\/icon\?url=/, '通过站点图标接口抓取网站真实图片');
+    assert.match(bm, /data-icon-url=/, '自定义图标地址只保存在书签 DOM 中供浏览器直连');
+    assert.match(iconSource, /endpoint\.searchParams\.set\('url', origin\)/, '自动图标只向站点接口发送规范化 origin');
+    assert.doesNotMatch(bm, /\/api\/icon\?url=/, '渲染模板不直接请求接口');
     assert.match(bm, /Array\.from\(/, '按码点取首字，emoji 与中文不会被切成半个字符');
     // 样式必须挂在主题令牌上，跟着经典 / 棱镜一起变。
     const icon = /^\.bookmark-icon\s*\{([^}]*)\}/m.exec(fullCode);
