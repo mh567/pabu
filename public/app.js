@@ -3331,7 +3331,7 @@
             try { if (bm.iconUrl) iconMode = 'custom'; else if (this.bookmarkIconIsPrivate(new URL(bm.url))) iconMode = 'local'; } catch {}
             const iconUrl = bm.iconUrl || bm.url;
             const icon = showIcons
-                ? `<img class="bookmark-icon" data-icon-mode="${iconMode}" data-bookmark-url="${this.esc(iconUrl)}"${bm.iconUrl ? ` data-icon-url="${this.esc(bm.iconUrl)}"` : ''} data-icon-state="idle" style="display:none" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable="false"><span class="bookmark-icon bookmark-icon-fallback" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
+                ? `<img class="bookmark-icon" data-icon-mode="${iconMode}" data-bookmark-url="${this.esc(iconUrl)}"${bm.iconUrl ? ` data-icon-url="${this.esc(bm.iconUrl)}"` : ''} data-icon-state="idle" style="display:none" alt="" aria-hidden="true" loading="eager" decoding="async" draggable="false"><span class="bookmark-icon bookmark-icon-fallback" aria-hidden="true">${this.esc(initial.toUpperCase())}</span>`
                 : '';
             return html(`
                 <a class="bookmark${showIcons ? ' has-icon' : ' bookmark-text-only'}"${attrs} href="${this.esc(bm.url)}" target="_blank" rel="noopener" title="${this.esc(bm.title)}">

@@ -65,7 +65,7 @@ test('bookmark icons: editing and settings expose custom address, refresh, and l
 test('bookmark icons: service worker upgrades preserve the dedicated icon cache', () => {
     const sw = read('sw.js');
     has(sw, /pabu-bookmark-icons-v1/, 'activation cleanup preserves dedicated icon cache');
-    has(sw, /const CACHE = 'pabu-v33'/, 'new icon module is installed through a new static cache version');
+    has(sw, /const CACHE = 'pabu-v34'/, 'new icon module is installed through a new static cache version');
 });
 
 test('bookmark icons: cache and request coordination live in a shared client module', () => {
@@ -89,6 +89,8 @@ test('bookmark icons: App copies non-enumerable module methods before startup', 
 test('bookmark icons: unloaded images stay outside flex layout until loaded', () => {
     const app = read('app.js');
     has(app, /data-icon-state="idle" style="display:none"/, 'the image is outside flex layout until it loads');
+    const image = app.match(/<img class="bookmark-icon"[^>]+>/)[0];
+    assert.match(image, /loading="eager"/, 'the visibility queue starts loading hidden images without native lazy loading blocking onload');
 });
 
 test('bookmark icons: visibility observer tracks the bookmark when its image is hidden', async () => {
