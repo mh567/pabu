@@ -68,7 +68,7 @@ SERVER_PORT=4001
 
 完整选项见 `.env.example` 与 `server-config.example.json`。首次启动会生成管理员初始密码文件 `.admin-password.json`，默认弱密码 `admin123` 首次登录后必须修改。`.env`、`.admin-password.json`、`config.json` 和 `pabu.db` 由服务或安装脚本限制为仅当前用户可读写。
 
-书签图标的共享服务端缓存保存在安装目录的 `.icon-cache/`，属于可重建数据，不必备份，服务只访问公网图标站点。浏览器另有设备本机缓存，清除浏览器站点数据会清掉这部分缓存。第三方图标回退默认关闭；只有明确接受把公开站点 origin 交给供应商处理时，才在 `.env` 设置 `PABU_ICON_FALLBACK_PROVIDERS=google,duckduckgo` 或只选择其中一家。不会发送书签路径、查询参数或用户身份。
+书签图标的共享服务端缓存保存在安装目录的 `.icon-cache/`，属于可重建数据，不必备份，服务只访问公网图标站点。浏览器另有设备本机缓存，清除浏览器站点数据会清掉这部分缓存。默认图标获取不需要注册或购买任何第三方服务，使用浏览器直连与本实例服务端缓存。第三方图标回退默认关闭；只有明确接受把公开站点 origin 交给供应商处理时，才在 `.env` 设置 `PABU_ICON_FALLBACK_PROVIDERS=google,duckduckgo` 或只选择其中一家。不会发送书签路径、查询参数或用户身份。
 
 修改配置后执行 `./pabu.sh restart`。
 

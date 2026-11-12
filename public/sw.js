@@ -1,4 +1,4 @@
-const CACHE = 'pabu-v34';
+const CACHE = 'pabu-v35';
 const ICON_CACHE = 'pabu-bookmark-icons-v1';
 const ASSETS = [
     '/', '/index.html', '/styles.css', '/admin.css', '/themes.css',

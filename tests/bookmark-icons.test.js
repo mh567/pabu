@@ -65,7 +65,7 @@ test('bookmark icons: editing and settings expose custom address, refresh, and l
 test('bookmark icons: service worker upgrades preserve the dedicated icon cache', () => {
     const sw = read('sw.js');
     has(sw, /pabu-bookmark-icons-v1/, 'activation cleanup preserves dedicated icon cache');
-    has(sw, /const CACHE = 'pabu-v34'/, 'new icon module is installed through a new static cache version');
+    has(sw, /const CACHE = 'pabu-v35'/, 'new icon module is installed through a new static cache version');
 });
 
 test('bookmark icons: cache and request coordination live in a shared client module', () => {
@@ -149,7 +149,7 @@ test('bookmark icons: normal and manual refresh use the same origin key', async 
     app.bookmarkIconIsPrivate = () => false;
     app.bookmarkIconController = () => new AbortController();
     app.withBookmarkIconTimeout = (_task, run) => run();
-    app.fetchBookmarkIcon = async task => { refreshTask = task; return { blob: new Blob(['x']) }; };
+    app.loadAutomaticBookmarkIcon = async task => { refreshTask = task; return { blob: new Blob(['x']) }; };
     await app.refreshBookmarkIcon({ url: 'https://example.test/path' });
     assert.equal(refreshTask.key, 'auto:https://example.test');
 });
@@ -445,7 +445,7 @@ test('bookmark icons: cached backoff does not count as a new failed request', as
     const img = { isConnected: true, dataset: { iconState: 'queued' } };
     const task = { key: 'auto:https://cooldown.test', mode: 'auto', controller: app.bookmarkIconController(), images: new Set([img]), deadline: Date.now() + 25000 };
     let failures = 0;
-    app.fetchBookmarkIcon = async () => ({ nextCheckAt: Date.now() + 60000, nextRetryAt: Date.now() + 60000, failureCount: 3 });
+    app.loadAutomaticBookmarkIcon = async () => ({ nextCheckAt: Date.now() + 60000, nextRetryAt: Date.now() + 60000, failureCount: 3 });
     app.markBookmarkIconFailure = async () => { failures++; };
     app.showBookmarkIconRecord = async () => {};
     app.bookmarkIconTasks = new Map([[task.key, task]]);
@@ -536,4 +536,95 @@ test('bookmark icons: LAN discovery retries the web entry when the root redirect
         assert.deepEqual(await app.discoverLocalBookmarkIcons(task), ['http://192.168.1.1:8096/web/favicon.hash.ico']);
         assert.deepEqual(requests, ['http://192.168.1.1:8096/', 'http://192.168.1.1:8096/web/']);
     });
+});
+
+test('bookmark icons: public direct loading precedes the server and reuses its remembered URL', async () => {
+    const app = Object.create(iconModule());
+    let cache = { failure: 'fetch', failureCount: 3, nextRetryAt: Date.now() + 7200000 };
+    app.readBookmarkIcon = async () => cache;
+    app.writeBookmarkIcon = async (_key, value) => { cache = value; };
+    const attempted = [];
+    app.loadBookmarkImage = async url => { attempted.push(url); if (!url.includes('/static/image/')) throw new Error('404'); return url; };
+    app.fetchBookmarkIcon = async () => { throw new Error('server must not be called'); };
+    const task = { key: 'auto:https://www.nodeseek.com', url: new URL('https://www.nodeseek.com/private?token=secret'), controller: new AbortController() };
+    await withGlobals({ navigator: { onLine: true } }, async () => {
+        const result = await app.loadAutomaticBookmarkIcon(task);
+        assert.equal(result.src, 'https://www.nodeseek.com/static/image/favicon/favicon-32x32.png');
+        assert.equal(cache.failure, undefined);
+        attempted.length = 0;
+        assert.equal((await app.loadAutomaticBookmarkIcon(task)).src, result.src);
+        assert.deepEqual(attempted, [result.src]);
+    });
+});
+
+test('bookmark icons: public direct failure falls back to the server without involving providers', async () => {
+    const app = Object.create(iconModule());
+    app.readBookmarkIcon = async () => null;
+    const attempts = [];
+    app.loadBookmarkImage = async url => { attempts.push(url); throw new Error('blocked'); };
+    const result = { blob: new Blob(['cached']) };
+    app.fetchBookmarkIcon = async () => { attempts.push('server'); return result; };
+    const task = { key: 'auto:https://example.com', url: new URL('https://example.com/bookmark?secret=1'), controller: new AbortController() };
+    await withGlobals({ navigator: { onLine: true } }, async () => assert.equal(await app.loadAutomaticBookmarkIcon(task), result));
+    assert.ok(attempts.length > 1);
+    assert.equal(attempts.at(-1), 'server');
+    assert.ok(attempts.slice(0, -1).every(url => new URL(url).origin === task.url.origin && !new URL(url).search));
+});
+
+test('bookmark icons: a fresh public Blob bypasses direct probes and network while offline', async () => {
+    const app = Object.create(iconModule());
+    const cached = { blob: new Blob(['cached']), nextCheckAt: Date.now() + 60000 };
+    app.readBookmarkIcon = async () => cached;
+    app.loadBookmarkImage = app.fetchBookmarkIcon = async () => { throw new Error('no network expected'); };
+    await withGlobals({ navigator: { onLine: false } }, async () => assert.equal(await app.loadAutomaticBookmarkIcon({ key: 'auto:https://example.com' }), cached));
+});
+
+test('bookmark icons: strategy upgrades restart failure backoff without discarding saved images', async () => {
+    const app = Object.create(iconModule());
+    const blob = new Blob(['old']);
+    app.readBookmarkIcon = async () => ({ blob, failureCount: 3 });
+    let saved;
+    app.writeBookmarkIcon = async (_key, record) => { saved = record; };
+    await app.markBookmarkIconFailure({ key: 'local:http://router.lan' });
+    assert.equal(saved.failureCount, 1);
+    assert.equal(saved.blob, blob);
+    assert.equal(saved.strategyVersion, 2);
+});
+
+test('bookmark icons: replacing a saved Blob with a direct URL removes the old disk image', async () => {
+    const app = Object.create(iconModule());
+    const records = new Map([['https://pabu.test/image', new Response('old')]]);
+    const cache = { put: async (key, value) => records.set(key.url, value), delete: async key => records.delete(key.url) };
+    app.bookmarkIconMemory = new Map();
+    app.bookmarkIconCacheEpoch = 0;
+    app.bookmarkIconCacheKey = async (_key, part) => new Request(`https://pabu.test/${part}`);
+    app.trimBookmarkIconCache = async () => {};
+    const storage = { open: async () => cache };
+    await withGlobals({ window: { caches: storage }, caches: storage }, () => app.writeBookmarkIcon('auto:https://example.com', { src: 'https://example.com/favicon.ico' }, { image: false }));
+    assert.equal(records.has('https://pabu.test/image'), false);
+    assert.equal((await records.get('https://pabu.test/meta').json()).src, 'https://example.com/favicon.ico');
+});
+
+test('bookmark icons: current strategy failures retain backoff and cancellation stops fallback', async () => {
+    const app = Object.create(iconModule());
+    const cached = { failure: 'fetch', strategyVersion: 2, nextRetryAt: Date.now() + 60000 };
+    app.readBookmarkIcon = async () => cached;
+    app.loadBookmarkImage = app.fetchBookmarkIcon = async () => { throw new Error('must not request'); };
+    const controller = new AbortController();
+    const task = { key: 'auto:https://example.com', url: new URL('https://example.com'), controller };
+    await withGlobals({ navigator: { onLine: true } }, async () => {
+        assert.equal(await app.loadAutomaticBookmarkIcon(task), cached);
+        app.readBookmarkIcon = async () => null;
+        controller.abort();
+        await assert.rejects(app.loadAutomaticBookmarkIcon(task), { name: 'AbortError' });
+    });
+});
+
+test('bookmark icons: manually refreshing a public direct image reports success', async () => {
+    const app = Object.create(iconModule());
+    app.bookmarkIconController = () => new AbortController();
+    app.withBookmarkIconTimeout = (_task, run) => run();
+    app.loadAutomaticBookmarkIcon = async (_task, options) => { assert.equal(options.refresh, true); return { src: 'https://example.com/favicon.ico' }; };
+    app.markBookmarkIconFailure = async () => { throw new Error('must not mark successful loading as failure'); };
+    assert.equal(await app.refreshBookmarkIcon({ url: 'https://example.com' }), '');
 });

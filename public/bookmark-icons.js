@@ -2,6 +2,7 @@
     'use strict';
 
     const BOOKMARK_ICON_CACHE = 'pabu-bookmark-icons-v1';
+    const BOOKMARK_ICON_STRATEGY = 2;
     const BOOKMARK_ICON_MAX_ACTIVE = 4;
     const BOOKMARK_ICON_MAX_QUEUE = 500;
     const BOOKMARK_ICON_MAX_ENTRIES = 500;
@@ -205,6 +206,11 @@
                     if (signal?.aborted || epoch !== this.bookmarkIconCacheEpoch) return;
                     await cache.put(imageKey, new Response(record.blob, { headers: { 'Content-Type': record.type || record.blob.type || 'image/png' } }));
                 }
+                if (record.src && !record.blob) {
+                    const imageKey = await this.bookmarkIconCacheKey(key, 'image');
+                    if (signal?.aborted || epoch !== this.bookmarkIconCacheEpoch) return;
+                    await cache.delete(imageKey);
+                }
                 if (signal?.aborted || epoch !== this.bookmarkIconCacheEpoch) return;
                 const { blob, ...meta } = record;
                 meta.byteSize = record.blob?.size || record.byteSize || 0;
@@ -223,11 +229,12 @@
 
         async markBookmarkIconFailure(task, error) {
             const previous = await this.readBookmarkIcon(task.key);
-            const failureCount = error?.throttled ? previous?.failureCount || 0 : (previous?.failureCount || 0) + 1;
+            const previousFailures = previous?.strategyVersion === BOOKMARK_ICON_STRATEGY ? previous.failureCount || 0 : 0;
+            const failureCount = error?.throttled ? previousFailures : previousFailures + 1;
             const delays = [300000, 1800000, 7200000, 86400000];
             const delay = error?.retryAfterMs ?? Math.round(delays[Math.min(failureCount - 1, delays.length - 1)] * (0.9 + Math.random() * 0.2));
             const nextRetryAt = Date.now() + delay;
-            await this.writeBookmarkIcon(task.key, { ...(previous || {}), nextCheckAt: nextRetryAt, nextRetryAt, failureCount, failure: error?.throttled ? 'rate-limit' : 'fetch' }, { image: false, epoch: task.epoch });
+            await this.writeBookmarkIcon(task.key, { ...(previous || {}), nextCheckAt: nextRetryAt, nextRetryAt, failureCount, failure: error?.throttled ? 'rate-limit' : 'fetch', strategyVersion: BOOKMARK_ICON_STRATEGY }, { image: false, epoch: task.epoch });
         }
 
         async withBookmarkIconLock(hash, signal, run) {
@@ -356,15 +363,38 @@
             return bytes;
         }
 
+        async loadAutomaticBookmarkIcon(task, { refresh = false } = {}) {
+            const cached = await this.readBookmarkIcon(task.key);
+            const fresh = Math.max(cached?.nextCheckAt || 0, cached?.nextRetryAt || 0) > Date.now();
+            if (!refresh && fresh && (cached?.blob || (cached?.failure && cached.strategyVersion === BOOKMARK_ICON_STRATEGY))) return cached;
+            if (!navigator.onLine) return cached;
+            const deadline = Math.min(task.deadline || Infinity, Date.now() + 3000);
+            const known = task.url.hostname === 'www.nodeseek.com' || task.url.hostname === 'nodeseek.com'
+                ? ['/static/image/favicon/favicon-32x32.png'] : [];
+            const candidates = [...new Set([...(cached?.src ? [cached.src] : []), ...[...known, '/favicon.ico', '/favicon.png', '/favicon.svg', '/apple-touch-icon.png'].map(path => new URL(path, task.url.origin).href)])];
+            for (const url of candidates) {
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) break;
+                if (task.controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                try {
+                    const src = await this.loadBookmarkImage(url, Math.min(1000, remaining), task.controller.signal);
+                    const record = { src, source: 'browser', strategyVersion: BOOKMARK_ICON_STRATEGY, nextCheckAt: Date.now() + 30 * 86400000 };
+                    await this.writeBookmarkIcon(task.key, record, { image: false, epoch: task.epoch, signal: task.controller.signal });
+                    return record;
+                } catch (error) { if (task.controller.signal.aborted) throw error; }
+            }
+            return this.fetchBookmarkIcon(task, { refresh });
+        }
+
         async fetchBookmarkIcon(task, { refresh = false } = {}) {
             const cached = await this.readBookmarkIcon(task.key);
-            if (!refresh && (cached?.blob || cached?.failure) && Math.max(cached?.nextCheckAt || 0, cached?.nextRetryAt || 0) > Date.now()) return cached;
+            if (!refresh && (cached?.blob || (cached?.failure && cached.strategyVersion === BOOKMARK_ICON_STRATEGY)) && Math.max(cached?.nextCheckAt || 0, cached?.nextRetryAt || 0) > Date.now()) return cached;
             if (cached?.blob) await this.showBookmarkIconRecord(task, cached);
             if (!navigator.onLine) return cached;
             const hash = await this.bookmarkIconHash(task.key);
             return this.withBookmarkIconLock(hash, task.controller.fetchSignal || task.controller.signal, async () => {
                 const latest = await this.readBookmarkIcon(task.key);
-                if (!refresh && (latest?.blob || latest?.failure) && Math.max(latest?.nextCheckAt || 0, latest?.nextRetryAt || 0) > Date.now()) return latest;
+                if (!refresh && (latest?.blob || (latest?.failure && latest.strategyVersion === BOOKMARK_ICON_STRATEGY)) && Math.max(latest?.nextCheckAt || 0, latest?.nextRetryAt || 0) > Date.now()) return latest;
                 const origin = task.url.origin;
                 const endpoint = new URL('/api/icon', location.origin);
                 endpoint.searchParams.set('url', origin);
@@ -429,6 +459,7 @@
                 image.onload = () => { clean(); resolve(url); };
                 image.onerror = () => { clean(); reject(new Error('图标加载失败')); };
                 image.referrerPolicy = 'no-referrer';
+                if (signal.aborted) { abort(); return; }
                 signal.addEventListener('abort', abort, { once: true });
                 image.src = url;
             });
@@ -471,7 +502,7 @@
         async loadDirectBookmarkIcon(task, { refresh = false } = {}) {
             const url = task.url;
             const cached = refresh ? null : await this.readBookmarkIcon(task.key);
-            if ((cached?.blob || cached?.failure) && Math.max(cached?.nextCheckAt || 0, cached?.nextRetryAt || 0) > Date.now()) return cached;
+            if ((cached?.blob || (cached?.failure && cached.strategyVersion === BOOKMARK_ICON_STRATEGY)) && Math.max(cached?.nextCheckAt || 0, cached?.nextRetryAt || 0) > Date.now()) return cached;
             if (cached?.blob) await this.showBookmarkIconRecord(task, cached);
             if (!navigator.onLine) return cached;
             if (task.mode === 'local' && cached?.src && cached.nextCheckAt > Date.now()) {
@@ -549,7 +580,7 @@
             task.started = true;
             try {
                 const result = await this.withBookmarkIconTimeout(task, () => task.mode === 'auto'
-                    ? this.fetchBookmarkIcon(task)
+                    ? this.loadAutomaticBookmarkIcon(task)
                     : this.loadDirectBookmarkIcon(task));
                 if (task.controller.signal.aborted) return;
                 if (result?.blob) await this.showBookmarkIconRecord(task, result);
@@ -687,8 +718,8 @@
             }
             const task = { key: `auto:${url.origin}`, url, mode: 'auto', controller: this.bookmarkIconController(), images: new Set(), epoch: this.bookmarkIconCacheEpoch, deadline: Date.now() + 25000 };
             try {
-                const result = await this.withBookmarkIconTimeout(task, () => this.fetchBookmarkIcon(task, { refresh: true }));
-                if (result?.blob) return '';
+                const result = await this.withBookmarkIconTimeout(task, () => this.loadAutomaticBookmarkIcon(task, { refresh: true }));
+                if (result?.blob || result?.src) return '';
                 throw new Error();
             } catch (error) {
                 if (error.name !== 'AbortError' || task.expired) await this.markBookmarkIconFailure(task, error);
