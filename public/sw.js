@@ -1,4 +1,4 @@
-const CACHE = 'pabu-v41';
+const CACHE = 'pabu-v42';
 const ICON_CACHE = 'pabu-bookmark-icons-v1';
 const ASSETS = [
     '/', '/index.html', '/styles.css', '/admin.css', '/themes.css',
@@ -19,11 +19,11 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
     if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.search || !ASSET_PATHS.has(url.pathname)) return;
-    event.respondWith(caches.match(event.request).then(cached => {
-        const fetched = fetch(event.request).then(response => {
+    // 网络优先：保证服务升级后 HTML 与各 JS 模块同版本加载，离线时再回退缓存。
+    event.respondWith(
+        fetch(event.request).then(response => {
             if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
             return response;
-        }).catch(() => cached);
-        return cached || fetched;
-    }));
+        }).catch(() => caches.match(event.request))
+    );
 });
