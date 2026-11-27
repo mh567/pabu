@@ -214,4 +214,5 @@
 - 优化访问加载速度：首页核心脚本改为 `<head>` 中 `defer` 并行下载，`rtc-transfer.js`（54 KB）与 `bookmark-icons.js`（44 KB）均改为按需懒加载，首屏 JS 体积减少近 100 KB；移除经典主题 `.search` 与 `.toast` 在纯色背景上冗余的 `backdrop-filter` 合成开销，并收敛棱镜主题模糊半径；字体、三方库与 SVG 图标启用 30 天静态缓存及 SW 本地优先命中。
 - 移除 `graphite`（石墨）主题及对应 CSS（`public/themes.css` 缩减约 23 KB），视觉主题保留「经典」与「棱镜」。
 - 拆分管理后台交互模块至 `public/admin.js`（仅在访问 `/admin` 时按需加载），访客首页 JS 体积进一步减少约 21 KB。
-- Service Worker 静态资源缓存更新至 pabu-v48。
+- 修复已下线 `graphite` 主题的本地存储兼容迁移（`NavigationSchema.normalizeLegacy` 自动将历史 `graphite` 迁移回 `prism`，避免本地 IndexedDB 校验失败导致「本地存储不可用」）；`importLocalNavigation` 新增支持导入 `pabu-sync-recovery.json` 同步恢复文件。
+- Service Worker 静态资源缓存更新至 pabu-v50。

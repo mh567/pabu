@@ -1,6 +1,16 @@
 {
   "versions": [
     {
+      "version": "0.8.15",
+      "releaseDate": "2026-11-27",
+      "summary": "修复已下线主题的历史数据兼容迁移，并支持导入同步恢复备份文件。",
+      "highlights": [
+        "本机存储、云端同步、导入与服务端自动将历史 graphite 主题迁移为 prism，避免存储校验失败。",
+        "支持在「导入导航」中直接导入 pabu-sync-recovery.json 同步恢复文件。"
+      ],
+      "changes": []
+    },
+    {
       "version": "0.8.14",
       "releaseDate": "2026-11-27",
       "summary": "优化首屏加载速度，按需拆分后台与扩展模块，精简经典主题光影并移除石墨主题。",

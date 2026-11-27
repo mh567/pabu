@@ -451,7 +451,7 @@
             this.setLocalStatus('正在保存到本机');
             try {
                 await this.localQueue;
-                const candidate = this.localNavigationCandidate();
+                const candidate = window.NavigationSchema.normalizeLegacy(this.localNavigationCandidate());
                 window.NavigationSchema.validate(candidate);
                 if (JSON.stringify(candidate) !== JSON.stringify(this.localSaved) || this.localError) {
                     if (!await this.saveLocalNavigation(candidate)) return;
@@ -521,6 +521,7 @@
             if (!record) {
                 const config = await (window.__navPabuConfigPromise || API.get('/api/config'));
                 try { const legacy = localStorage.getItem(THEME_STORAGE_KEY); if (APPEARANCE_ORDER.includes(legacy)) config.theme = legacy; } catch (e) {}
+                window.NavigationSchema.normalizeLegacy(config);
                 window.NavigationSchema.validate(config);
                 if (!this.localUnavailable) {
                     try { record = await this.localStore.write(config, 0); }
@@ -538,7 +539,9 @@
         }
 
         saveLocalNavigation(config = this.config, undo = false) {
-            const candidate = window.NavigationSchema.publicConfig(structuredClone(config));
+            const candidate = window.NavigationSchema.normalizeLegacy(
+                window.NavigationSchema.publicConfig(structuredClone(config))
+            );
             this.localPending++;
             this.setLocalStatus('正在保存到本机');
             const task = this.localQueue.then(async () => {
@@ -601,9 +604,14 @@
             try {
                 if (file.size > 1024 * 1024) throw new Error('配置超过 1 MiB');
                 const data = JSON.parse(await file.text());
-                if (data.schemaVersion !== 1 || Object.keys(data).some(k => !['schemaVersion', 'config'].includes(k))) throw new Error('配置文件版本或字段无效');
-                const config = data.config;
+                if (data.schemaVersion !== 1 || !data.config || typeof data.config !== 'object' || Array.isArray(data.config) || Object.keys(data).some(k => !['schemaVersion', 'config', 'direction', 'savedAt', 'modules'].includes(k))) {
+                    throw new Error('配置文件版本或字段无效');
+                }
+                const config = window.NavigationSchema.normalizeLegacy(
+                    window.NavigationSchema.publicConfig(structuredClone(data.config))
+                );
                 if (Array.isArray(config?.searchEngines) && config.searchEngines.length && !config.searchEngines.some(e => e.id === config.searchEngine)) config.searchEngine = config.searchEngines[0].id;
+                window.NavigationSchema.normalizeLegacy(config);
                 window.NavigationSchema.validate(config);
                 if (!await this.confirmAction('导入将替换本机导航，可通过撤销恢复上一份配置。', '导入导航')) return;
                 if (this.localRevision !== revision) throw new Error('导航状态已变化，请重新导入');
@@ -615,6 +623,7 @@
             const revision = this.localRevision;
             try {
                 const config = await API.get('/api/config');
+                window.NavigationSchema.normalizeLegacy(config);
                 window.NavigationSchema.validate(config);
                 if (!await this.confirmAction('用当前站点导航替换本机导航及未保存设置？可通过撤销恢复。', '重置导航')) return;
                 if (this.localRevision !== revision) throw new Error('导航状态已变化，请重新重置');
@@ -1858,6 +1867,7 @@
 
         async adoptCloudConfig(cloud) {
             if (!cloud || !cloud.config) return;
+            window.NavigationSchema.normalizeLegacy(cloud.config);
             window.NavigationSchema.validate(cloud.config);
             if (await this.saveLocalNavigation(cloud.config) === false) throw new Error('本机导航未保存，已取消采用云端配置');
             this.config = structuredClone(cloud.config);
@@ -3040,6 +3050,7 @@
         }
 
         migrateConfig() {
+            window.NavigationSchema.normalizeLegacy?.(this.config);
             if (this.config.bookmarks && !this.config.categories) {
                 this.config.categories = this.config.bookmarks;
                 delete this.config.bookmarks;

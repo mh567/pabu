@@ -11,7 +11,11 @@
         if (record && (record.schemaVersion !== SCHEMA_VERSION || !Number.isSafeInteger(record.revision) || record.revision < 1)) {
             throw new Error('本地配置版本无法读取，请升级应用并保留站点数据');
         }
-        if (record) window.NavigationSchema.validate(record.config);
+        if (record) {
+            window.NavigationSchema.normalizeLegacy?.(record.config);
+            if (record.previous) window.NavigationSchema.normalizeLegacy?.(record.previous);
+            window.NavigationSchema.validate(record.config);
+        }
         return record;
     }
     /**
@@ -80,6 +84,7 @@
             });
         }
         async write(config, revision, undo = false) {
+            window.NavigationSchema.normalizeLegacy?.(config);
             window.NavigationSchema.validate(config);
             const db = await this.open();
             return new Promise((resolve, reject) => {
@@ -92,6 +97,7 @@
                         if ((current?.revision || 0) !== revision) throw Object.assign(new Error('其他标签页已修改导航，请先导出当前内容或采用其他标签页版本'), { code: 'conflict' });
                         const next = undo ? current?.previous : config;
                         if (!next) throw new Error('没有可撤销的操作');
+                        window.NavigationSchema.normalizeLegacy?.(next);
                         window.NavigationSchema.validate(next);
                         result = { schemaVersion: SCHEMA_VERSION, revision: revision + 1, config: next, previous: current?.config || null };
                         store.put(result, 'ordinary');

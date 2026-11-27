@@ -186,3 +186,17 @@ test('themes: file share restores registered styles with their fixed mode', () =
         assert.equal(dataset.themeStyle, expected ? style : undefined);
     }
 });
+
+test('themes: normalizeLegacy migrates removed graphite style to prism', () => {
+    const legacy = { ...config, themeStyle: 'graphite' };
+    assert.equal(schema.normalizeLegacy(legacy).themeStyle, 'prism');
+    assert.doesNotThrow(() => schema.validate(legacy));
+    assert.equal(schema.normalizeLegacy({ ...config, themeStyle: 'classic' }).themeStyle, 'classic');
+});
+
+test('import: sync recovery envelope is accepted by importLocalNavigation', () => {
+    const appSource = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+    const localNav = fs.readFileSync(path.join(__dirname, '../public/local-navigation.js'), 'utf8');
+    assert.match(appSource, /\['schemaVersion', 'config', 'direction', 'savedAt', 'modules'\]/);
+    assert.match(localNav, /normalizeLegacy/);
+});

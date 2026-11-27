@@ -6,6 +6,13 @@ const THEMES = Object.freeze({
     classic: Object.freeze({ name: '经典', mode: null }),
     prism: Object.freeze({ name: '棱镜', mode: 'dark' })
 });
+const LEGACY_THEMES = Object.freeze({ graphite: 'prism' });
+function normalizeLegacy(config) {
+    if (config && typeof config === 'object' && Object.hasOwn(LEGACY_THEMES, config.themeStyle)) {
+        config.themeStyle = LEGACY_THEMES[config.themeStyle];
+    }
+    return config;
+}
 function appearance(config) {
     const style = Object.hasOwn(THEMES, config.themeStyle) ? config.themeStyle : 'prism';
     return { style, mode: THEMES[style].mode || config.theme || 'auto' };
@@ -53,7 +60,7 @@ function publicConfig(value) {
     const { privacyMode, ...legacy } = value;
     return Object.fromEntries(FIELDS.filter(k => k !== 'themeStyle' || legacy[k] !== undefined).map(k => [k, legacy[k]]));
 }
-const schema = { validate, publicConfig, FIELDS, THEMES, appearance };
+const schema = { validate, publicConfig, FIELDS, THEMES, appearance, normalizeLegacy };
 if (typeof module !== 'undefined' && module.exports) module.exports = schema;
 else root.NavigationSchema = schema;
 })(globalThis);
