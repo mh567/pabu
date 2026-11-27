@@ -319,35 +319,25 @@ test('下拉容器与收藏下拉各自成条，不共用规则', () => {
     assert.match(code, /^\.fav-dropdown\s*\{/m, '收藏下拉有独立规则');
 });
 
-test('悬浮光感是双层：中性白高光 + 色相光晕', () => {
-    // 缺了白色高光层，两层色相光晕叠在一起偏灰发糊——
-    // 这是「说不上哪里不精致」的观感来源，只能靠数值钉住。
+test('经典主题关闭悬浮光斑，避免悬停时出现追踪光晕', () => {
     for (const name of ['--glint-white', '--glint', '--search-glint']) {
-        const n = (fullCode.match(new RegExp(`${name}\\s*:`, 'g')) || []).length;
-        assert.equal(n, 3, `${name} 必须在三处主题块各定义一次，实际 ${n}`);
+        const n = (fullCode.match(new RegExp(`${name}\\s*:\\s*transparent`, 'g')) || []).length;
+        assert.equal(n, 3, `${name} 必须在三处主题块均设为 transparent，实际 ${n}`);
     }
 
     const searchAfter = /^\.search::after\s*\{([^}]*)\}/m.exec(code);
     assert.ok(searchAfter, '存在 .search::after 规则');
-    const gradients = searchAfter[1].match(/radial-gradient/g) || [];
-    assert.equal(gradients.length, 2, `.search::after 应为双层光感，实际 ${gradients.length} 层`);
-    assert.match(searchAfter[1], /var\(--glint-white\)/, '搜索框光感含中性白高光层');
-    assert.match(searchAfter[1], /var\(--search-glint\)/, '搜索框光感含色相光晕层');
+    assert.match(searchAfter[1], /opacity:\s*0/, '搜索框关闭悬浮光斑');
 
     const bmBefore = /^\.bookmark::before\s*\{([^}]*)\}/m.exec(code);
     assert.ok(bmBefore, '存在 .bookmark::before 规则');
-    assert.match(bmBefore[1], /var\(--glint-white\)/, '书签光感同样含中性白高光层');
-    // 白色层不能写死一个偏暗的 rgba——那正是上一版「显得灰」的原因
-    assert.equal(/rgba\(255,\s*255,\s*255,\s*\.5\d\)/.test(bmBefore[1]), false,
-        '书签白色高光层应用 --glint-white 变量，不要写死偏暗的 rgba');
+    assert.match(bmBefore[1], /opacity:\s*0/, '书签关闭悬浮光斑');
 });
 
-test('书签光晕强度不再靠提透明度补偿', () => {
-    // 仿真用 --glint-white + --glint 两层本身就是 .32；上一版把单层调成 .46
-    // 来补颜色，方向反了——该换的是颜色而不是透明度。
-    const glow = /--bookmark-glow-opacity:\s*([\d.]+)/.exec(fullCode);
-    assert.ok(glow, '定义了 --bookmark-glow-opacity');
-    assert.equal(Number(glow[1]), 0.32, `浅色光晕应为仿真的 .32，实际 ${glow[1]}`);
+test('书签光晕透明度已归零', () => {
+    const glows = [...fullCode.matchAll(/--bookmark-glow-opacity:\s*([\d.]+)/g)].map(m => Number(m[1]));
+    assert.equal(glows.length, 3, '三处主题块都定义 --bookmark-glow-opacity');
+    assert.ok(glows.every(v => v === 0), `三处光晕透明度均应为 0，实际 ${glows.join(' / ')}`);
 });
 
 test('书签顶边高光与悬停描边按仿真取值', () => {

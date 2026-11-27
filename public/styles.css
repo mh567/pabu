@@ -1844,10 +1844,10 @@ img.bookmark-icon {
     --bookmark-glint: var(--glint);
     /* 悬停抬升与深色一致（-2px）：两套主题共用同一套「抬起 + 影子跟随」
        机制。此前浅色 -1px、深色 -2px，同样是机制不一致的一例。 */
-    --bookmark-lift: -2px;
+    --bookmark-lift: -1px;
     --bookmark-press-depth: 1px;
-    --bookmark-press-scale: .975;
-    --bookmark-glow-opacity: .32;
+    --bookmark-press-scale: .985;
+    --bookmark-glow-opacity: 0;
     --bookmark-glow-motion: 85ms;
     --bookmark-motion: 90ms;
     --bookmark-press-motion: 35ms;
@@ -1857,24 +1857,18 @@ img.bookmark-icon {
     --glass: rgba(252,250,246,.66);
     --glass-strong: rgba(252,250,246,.91);
     --card-bottom: #f0ede7;
-    --control-top: #fcfaf6;
-    --control-bottom: #eee9e1;
-    --control-hover-top: #fffdf9;
-    --control-hover-bottom: #f4eee6;
+    --control-top: #fdfcfa;
+    --control-bottom: #f4efe8;
+    --control-hover-top: #ffffff;
+    --control-hover-bottom: #f7f3ed;
     --control-pressed-top: #e9e2d9;
     --control-pressed-bottom: #f1ece5;
-    --glint: rgba(179,111,73,.34);
-    --search-glint: rgba(179,111,73,.20);
-    /* 悬浮光感的高光层：与仿真一致，书签与搜索框的 ::before/::after 共用。
-       缺这一层时两层光晕叠在一起显得灰、糊，正是「说不上哪里不精致」的来源。 */
-    --glint-white: rgba(255,255,255,.90);
-    /* 浅色的投影比旧值（.06/.1）强、但比深色（.3/.5）弱。
-       旧值在米色底上几乎不可见，导致浅色下按钮「抬起来却看不到影子」——
-       深色之所以手感正确，正是因为它有真实外投影在跟。
-       这组值取中间强度：米色底比深色亮，需要更强的黑才读得出，
-       但不宜到深色那档，否则浅色整体会显得发脏。 */
-    --shadow: 0 1px 3px rgba(60,45,32,.11),0 4px 10px rgba(60,45,32,.07);
-    --shadow-lg: 0 4px 10px rgba(60,45,32,.10),0 14px 30px rgba(60,45,32,.15);
+    --control-highlight: rgba(255,255,255,.65);
+    --glint: transparent;
+    --search-glint: transparent;
+    --glint-white: transparent;
+    --shadow: 0 1px 0 rgba(92,76,64,.16),0 1px 2px rgba(60,45,32,.08);
+    --shadow-lg: 0 1px 0 rgba(92,76,64,.20),0 2px 5px rgba(60,45,32,.11);
     --press-shadow: inset 0 2px 5px rgba(91,70,55,.20),inset 0 -1px rgba(255,255,255,.55);
     --radius: 10px;
     /* 搜索栏三按钮的色相锚点：同族拟物，仅色相微偏以区分功能。
@@ -1907,10 +1901,10 @@ img.bookmark-icon {
         --bookmark-hover-shadow: inset 0 1px rgba(255,255,255,.88),var(--shadow-lg);
         --bookmark-press-shadow: inset 0 4px 8px rgba(0,0,0,.48),inset 0 0 0 1px rgba(0,0,0,.12),inset 0 -1px rgba(255,255,255,.08);
         --bookmark-glint: var(--glint);
-        --bookmark-lift: -2px;
+        --bookmark-lift: -1px;
         --bookmark-press-depth: 1px;
-        --bookmark-press-scale: .975;
-        --bookmark-glow-opacity: .8;
+        --bookmark-press-scale: .985;
+        --bookmark-glow-opacity: 0;
         --bookmark-glow-motion: 160ms;
         --bookmark-motion: 160ms;
         --bookmark-press-motion: 55ms;
@@ -1920,17 +1914,18 @@ img.bookmark-icon {
         --glass: rgba(65,58,51,.70);
         --glass-strong: rgba(57,51,46,.93);
         --card-bottom: #2c2925;
-        --control-top: #625951;
-        --control-bottom: #3c3630;
-        --control-hover-top: #71655b;
-        --control-hover-bottom: #4a4139;
-        --control-pressed-top: #292521;
-        --control-pressed-bottom: #39312b;
-        --glint: rgba(243,180,135,.28);
-        --search-glint: rgba(243,180,135,.18);
-        --glint-white: rgba(255,244,226,.18);
-        --shadow: 0 2px 4px rgba(0,0,0,.12),0 10px 28px rgba(0,0,0,.20);
-        --shadow-lg: 0 5px 10px rgba(0,0,0,.18),0 18px 34px rgba(0,0,0,.35);
+        --control-top: #46403a;
+        --control-bottom: #3d3732;
+        --control-hover-top: #504942;
+        --control-hover-bottom: #453f39;
+        --control-pressed-top: #2c2824;
+        --control-pressed-bottom: #36302b;
+        --control-highlight: rgba(255,255,255,.10);
+        --glint: transparent;
+        --search-glint: transparent;
+        --glint-white: transparent;
+        --shadow: 0 1px 0 rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.25);
+        --shadow-lg: 0 1px 0 rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.32);
         --press-shadow: inset 0 3px 7px rgba(0,0,0,.45),inset 0 -1px rgba(255,255,255,.08);
         /* 与 :root 的三色锚点成对定义，缺一份则手动深色与系统深色表现分叉 */
         --mode-hue: 138,160,168;
@@ -1961,10 +1956,10 @@ img.bookmark-icon {
     --bookmark-hover-shadow: inset 0 1px rgba(255,255,255,.88),var(--shadow-lg);
     --bookmark-press-shadow: inset 0 4px 8px rgba(0,0,0,.48),inset 0 0 0 1px rgba(0,0,0,.12),inset 0 -1px rgba(255,255,255,.08);
     --bookmark-glint: var(--glint);
-    --bookmark-lift: -2px;
+    --bookmark-lift: -1px;
     --bookmark-press-depth: 1px;
-    --bookmark-press-scale: .975;
-    --bookmark-glow-opacity: .8;
+    --bookmark-press-scale: .985;
+    --bookmark-glow-opacity: 0;
     --bookmark-glow-motion: 160ms;
     --bookmark-motion: 160ms;
     --bookmark-press-motion: 55ms;
@@ -1974,17 +1969,18 @@ img.bookmark-icon {
     --glass: rgba(65,58,51,.70);
     --glass-strong: rgba(57,51,46,.93);
     --card-bottom: #2c2925;
-    --control-top: #625951;
-    --control-bottom: #3c3630;
-    --control-hover-top: #71655b;
-    --control-hover-bottom: #4a4139;
-    --control-pressed-top: #292521;
-    --control-pressed-bottom: #39312b;
-    --glint: rgba(243,180,135,.28);
-    --search-glint: rgba(243,180,135,.18);
-    --glint-white: rgba(255,244,226,.18);
-    --shadow: 0 2px 4px rgba(0,0,0,.12),0 10px 28px rgba(0,0,0,.20);
-    --shadow-lg: 0 5px 10px rgba(0,0,0,.18),0 18px 34px rgba(0,0,0,.35);
+    --control-top: #46403a;
+    --control-bottom: #3d3732;
+    --control-hover-top: #504942;
+    --control-hover-bottom: #453f39;
+    --control-pressed-top: #2c2824;
+    --control-pressed-bottom: #36302b;
+    --control-highlight: rgba(255,255,255,.10);
+    --glint: transparent;
+    --search-glint: transparent;
+    --glint-white: transparent;
+    --shadow: 0 1px 0 rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.25);
+    --shadow-lg: 0 1px 0 rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.32);
     --press-shadow: inset 0 3px 7px rgba(0,0,0,.45),inset 0 -1px rgba(255,255,255,.08);
     /* 与上面 prefers-color-scheme 块逐字一致，两处必须同步 */
     --mode-hue: 138,160,168;
@@ -2014,12 +2010,10 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    仿真 .search-shell::before 同样存在，此前移植时整块漏掉——
    背板加了 padding-top 后，搜索框顶与背板顶拉开 20px，
    框自身若没有这条高光，会在这道缝里显得缺一道亮边。 */
-.search::before { content: ''; position: absolute; left: 11px; right: 11px; top: 0; height: 1px; pointer-events: none; background: linear-gradient(90deg,transparent,rgba(255,255,255,.95) 30%,rgba(255,255,255,.95) 70%,transparent); }
-/* 光感与 .bookmark::before 同构：中性白高光 + 色相光晕。
-   单层时两层光晕叠在一起偏灰；仿真就是双层，这里对齐。 */
-.search::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse 77px 51px at var(--glow-x) var(--glow-y),var(--glint-white),transparent 68%),radial-gradient(ellipse 105px 52px at var(--glow-x) var(--glow-y),var(--search-glint),transparent 82%); opacity: 0; transition: opacity 85ms; }
-.search:hover { border-color: rgba(148,94,74,.33); box-shadow: inset 0 1px rgba(255,255,255,.82),0 4px 10px rgba(67,51,39,.055),0 13px 27px rgba(67,51,39,.07); }
-.search:hover::after { opacity: .40; }
+.search::before { content: ''; position: absolute; left: 11px; right: 11px; top: 0; height: 1px; pointer-events: none; background: linear-gradient(90deg,transparent,rgba(255,255,255,.32) 30%,rgba(255,255,255,.32) 70%,transparent); }
+.search::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
+.search:hover { border-color: rgba(148,94,74,.38); box-shadow: inset 0 1px rgba(255,255,255,.5),0 2px 6px rgba(67,51,39,.08); }
+.search:hover::after { opacity: 0; }
 .search:focus-within { border-color: var(--focus); box-shadow: inset 0 2px 5px rgba(91,70,55,.10),inset 0 0 0 1px rgba(255,255,255,.52),0 4px 12px rgba(67,51,39,.07),0 0 0 3px rgba(148,94,74,.065); }
 :root[data-theme="dark"] .search:focus-within { background: rgba(44,39,35,.83); box-shadow: inset 0 3px 8px rgba(0,0,0,.34),inset 0 0 0 1px rgba(255,255,255,.06),0 0 0 3px rgba(223,169,140,.08); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .search:focus-within { background: rgba(44,39,35,.83); box-shadow: inset 0 3px 8px rgba(0,0,0,.34),inset 0 0 0 1px rgba(255,255,255,.06),0 0 0 3px rgba(223,169,140,.08); } }
@@ -2029,25 +2023,16 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .search-mode,.search-engine,.search-btn {
     --glow-x: 50%; --glow-y: 0%; position: relative; z-index: 1; flex: 0 0 auto;
     height: var(--ctl-h); min-height: var(--ctl-h); padding: 0 10px; overflow: hidden;
-    border: 1px solid rgba(var(--HUE),.26); border-radius: 9px; color: var(--text);
+    border: 1px solid var(--border); border-bottom-color: rgba(92,76,64,.26); border-radius: 9px; color: var(--text);
     font-size: 12px; font-weight: 600; cursor: pointer;
-    background: linear-gradient(172deg,rgba(var(--HUE),.085),rgba(var(--HUE),.032) 62%,rgba(var(--HUE),.055));
-    box-shadow: inset 0 1px rgba(255,255,255,.80),inset 0 -1px rgba(105,81,63,.09),var(--shadow);
-    transition: transform 110ms,border-color 140ms,box-shadow 140ms,background 140ms,color 140ms;
+    background: linear-gradient(180deg,var(--control-top),var(--control-bottom));
+    box-shadow: inset 0 1px var(--control-highlight),var(--shadow);
+    transition: transform 80ms,border-color 140ms,box-shadow 140ms,background 140ms,color 140ms;
 }
-/* 光感与 .bookmark::before 同构：中性白高光 + 各自色相光晕 */
-.search-mode::before,.search-engine::before,.search-btn::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse 62px 40px at var(--glow-x) var(--glow-y),rgba(255,255,255,.86),transparent 66%),radial-gradient(ellipse 66px 43px at var(--glow-x) var(--glow-y),rgba(var(--HUE),.40),transparent 82%); opacity: 0; transition: opacity 85ms; }
-.search-mode:hover::before,.search-engine:hover::before,.search-btn:hover::before { opacity: .52; }
-.search-mode:hover,.search-engine:hover,.search-btn:hover { transform: translateY(-1px); border-color: rgba(var(--HUE),.46); background: linear-gradient(172deg,rgba(var(--HUE),.14),rgba(var(--HUE),.055) 62%,rgba(var(--HUE),.09)); box-shadow: inset 0 1px rgba(255,255,255,.90),inset 0 -1px rgba(105,81,63,.11),var(--shadow-lg); }
-/* 按下：做出「按键行程」而不只是内阴影。
-   之前只 translateY(1px)，按钮几乎没离开原平面，看着像贴纸在变暗；
-   2px 位移 + .985 缩放才有琴键被按下去的实感。
-   缩放幅度刻意压在 .985：44px 按钮缩后仍有 43.3px，可点区域不被牺牲。
-   过渡 28ms 比 hover 的 110ms 短，制造干脆的「按下去」而非「淡入」。
-   常态与悬停那层外投影在这里被 --ctl-press-shadow 整条替换：
-   按钮按下时影子必须收掉，否则抬升与下压两股力会互相抵消，
-   「按下去」的读数被悬停的浮起感污染。 */
-.search-mode:active,.search-engine:active,.search-btn:active { transform: translateY(2px) scale(.985); border-color: rgba(var(--HUE),.38); background: linear-gradient(180deg,rgba(var(--HUE),.18),rgba(var(--HUE),.07)); box-shadow: var(--ctl-press-shadow); transition-duration: var(--ctl-press-motion); }
+.search-mode::before,.search-engine::before,.search-btn::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
+.search-mode:hover::before,.search-engine:hover::before,.search-btn:hover::before { opacity: 0; }
+.search-mode:hover,.search-engine:hover,.search-btn:hover { transform: none; border-color: var(--focus); background: linear-gradient(180deg,var(--control-hover-top),var(--control-hover-bottom)); box-shadow: inset 0 1px var(--control-highlight),var(--shadow-lg); }
+.search-mode:active,.search-engine:active,.search-btn:active { transform: translateY(2px) scale(.985); border-color: var(--border); background: linear-gradient(180deg,var(--control-pressed-top),var(--control-pressed-bottom)); box-shadow: var(--ctl-press-shadow); transition-duration: var(--ctl-press-motion); }
 .search-mode:active::before,.search-engine:active::before,.search-btn:active::before { opacity: 0; transition-duration: 20ms; }
 .search-mode { --HUE: var(--mode-hue); min-width: 48px; color: var(--text-secondary); }
 /* 选中态做成「点亮」而非「凹陷」：inset 阴影留给 :active，
@@ -2065,19 +2050,17 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 /* 搜索是主操作：实心陶土，凹陷靠加深填充而非 inset 才读得出 */
 .search-btn {
     --HUE: var(--submit-hue); width: auto; min-width: 49px; padding: 0 11px; font-weight: 700; color: #fffaf5;
-    border-color: rgba(var(--submit-hue),.55);
+    border-color: rgba(74,44,32,.22); border-bottom-color: rgba(48,28,20,.42);
     background: linear-gradient(172deg,#85604e,#71513f 58%,#66483a);
-    box-shadow: inset 0 1px rgba(255,255,255,.24),inset 0 -1px rgba(0,0,0,.14),0 2px 5px rgba(67,51,39,.17),0 5px 12px rgba(67,51,39,.10);
+    box-shadow: inset 0 1px rgba(255,255,255,.22),var(--shadow);
 }
-.search-btn::before { background: radial-gradient(ellipse 62px 40px at var(--glow-x) var(--glow-y),rgba(255,255,255,.42),transparent 66%),radial-gradient(ellipse 66px 43px at var(--glow-x) var(--glow-y),rgba(255,214,180,.30),transparent 82%); }
-.search-btn:hover { border-color: rgba(214,161,129,.70); background: linear-gradient(172deg,#96705c,#825d47 58%,#70503f); box-shadow: inset 0 1px rgba(255,255,255,.30),inset 0 -1px rgba(0,0,0,.14),0 6px 14px rgba(67,51,39,.22); }
-/* 按下态必须显式给 border-color：否则指针仍停在按钮上时 :hover 的浅色描边
-   会保留下来，深色实心底配一条亮边，凹陷读不出来 */
-.search-btn:active { border-color: rgba(var(--submit-hue),.62); background: linear-gradient(180deg,#5c4034,#4e352b); color: rgba(255,250,245,.92); box-shadow: inset 0 5px 11px rgba(46,28,20,.52),inset 0 0 0 1px rgba(40,24,16,.28),inset 0 -1px rgba(255,255,255,.16); }
-:root[data-theme="dark"] .search-btn { background: linear-gradient(172deg,#e0b293,#d4a181 58%,#c08e70); border-color: rgba(223,169,140,.42); color: #271e18; }
-:root[data-theme="dark"] .search-btn:hover { background: linear-gradient(172deg,#eec3a6,#e0b293 58%,#d4a181); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .search-btn { background: linear-gradient(172deg,#e0b293,#d4a181 58%,#c08e70); border-color: rgba(223,169,140,.42); color: #271e18; } }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .search-btn:hover { background: linear-gradient(172deg,#eec3a6,#e0b293 58%,#d4a181); } }
+.search-btn::before { opacity: 0; }
+.search-btn:hover { border-color: rgba(74,44,32,.32); border-bottom-color: rgba(48,28,20,.50); background: linear-gradient(172deg,#96705c,#825d47 58%,#70503f); box-shadow: inset 0 1px rgba(255,255,255,.26),var(--shadow-lg); }
+.search-btn:active { border-color: rgba(var(--submit-hue),.62); background: linear-gradient(180deg,#5c4034,#50372c); color: rgba(255,250,245,.92); box-shadow: inset 0 3px 6px rgba(40,24,16,.45); }
+:root[data-theme="dark"] .search-btn { background: linear-gradient(180deg,#dfaf90,#cf9c7c); border-color: rgba(255,255,255,.14); border-bottom-color: rgba(0,0,0,.38); color: #271e18; }
+:root[data-theme="dark"] .search-btn:hover { background: linear-gradient(180deg,#ebbda0,#daaa8b); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .search-btn { background: linear-gradient(180deg,#dfaf90,#cf9c7c); border-color: rgba(255,255,255,.14); border-bottom-color: rgba(0,0,0,.38); color: #271e18; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .search-btn:hover { background: linear-gradient(180deg,#ebbda0,#daaa8b); } }
 /* font-size 不能低于 16px：iOS Safari 焦点时小于该值会自动缩放整页。
    583/603 行的移动端 16px 规则被这里覆盖过，改成 15px 会让点击输入框时页面跳动。 */
 .search-input { position: relative; z-index: 1; min-height: 44px; padding: 0 10px; font-size: 16px; font-family: inherit; line-height: 44px; border: 0; background: transparent; color: var(--text); resize: none; overflow-y: auto; }
@@ -2120,11 +2103,9 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .category-title { color: var(--text-secondary); font-size: 11px; font-weight: 600; letter-spacing: .07em; }
 .bookmarks { grid-template-columns: repeat(auto-fill,96px); gap: 8px; }
 .bookmark,.bookmark-text-only { --glow-x: 50%; --glow-y: 0%; position: relative; display: grid; place-items: center; min-height: 42px; padding: 6px 8px; overflow: hidden; border: 1px solid var(--bookmark-border); border-radius: 7px; background: var(--bookmark-face); box-shadow: var(--bookmark-idle-shadow); transition: transform var(--bookmark-motion) cubic-bezier(.2,.8,.25,1),border-color var(--bookmark-motion),box-shadow var(--bookmark-motion),background var(--bookmark-motion); }
-.bookmark::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 77px 51px at var(--glow-x) var(--glow-y),var(--glint-white),transparent 68%),radial-gradient(ellipse 103px 69px at var(--glow-x) var(--glow-y),var(--bookmark-glint),transparent 82%); opacity: .17; transition: opacity var(--bookmark-glow-motion); }
-/* 顶边 1px 高光：让卡片在浅色背景上有「被从上方照亮」的边缘，
-   与搜索框外壳、按钮的顶部 inset 高光同一套语言。
-   左右各内缩 12px，与仿真一致——缩得太贴角会显得像描边而非受光。 */
-.bookmark::after { content: ''; position: absolute; left: 12px; right: 12px; top: 0; height: 1px; pointer-events: none; background: linear-gradient(90deg,transparent,rgba(255,255,255,.96) 30%,rgba(255,255,255,.96) 70%,transparent); }
+.bookmark::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+/* 顶边微弱受光边缘：左右各内缩 12px */
+.bookmark::after { content: ''; position: absolute; left: 12px; right: 12px; top: 0; height: 1px; pointer-events: none; background: linear-gradient(90deg,transparent,rgba(255,255,255,.28) 30%,rgba(255,255,255,.28) 70%,transparent); }
 .bookmark:hover,.bookmark-text-only:hover { z-index: 1; transform: translateY(var(--bookmark-lift)); border-color: var(--bookmark-hover-border); background: var(--bookmark-hover-face); box-shadow: var(--bookmark-hover-shadow); }
 .bookmark:hover::before,.bookmark:focus-visible::before { opacity: var(--bookmark-glow-opacity); }
 .bookmark:active,.bookmark-text-only:active,.bookmark.is-pressed { transform: translateY(var(--bookmark-press-depth)) scale(var(--bookmark-press-scale)); border-color: var(--bookmark-pressed-border); background: var(--bookmark-pressed-face); box-shadow: var(--bookmark-press-shadow); transition-duration: var(--bookmark-press-motion); }
@@ -2146,11 +2127,11 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .site-footer-sep { color: var(--text-muted); font-size: 12px; opacity: .55; user-select: none; }
 .modal-backdrop,.help-overlay { background: rgba(22,32,40,.39); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
 .modal-content,.help-content,.fav-dialog { border: 1px solid var(--border); background: var(--glass-strong); box-shadow: inset 0 1px rgba(255,255,255,.57),0 20px 48px rgba(35,27,21,.21); backdrop-filter: blur(23px) saturate(118%); -webkit-backdrop-filter: blur(23px) saturate(118%); }
-.btn { border-color: var(--border); border-radius: 8px; background: linear-gradient(170deg,var(--control-top),var(--control-bottom)); color: var(--text); box-shadow: inset 0 1px rgba(255,255,255,.48),0 1px 3px rgba(67,51,39,.06); transition: transform 110ms,border-color 140ms,box-shadow 140ms,background 140ms,color 140ms; }
-.btn:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--focus); background: linear-gradient(170deg,var(--control-hover-top),var(--control-hover-bottom)); color: var(--text); box-shadow: inset 0 1px rgba(255,255,255,.68),0 3px 7px rgba(67,51,39,.1); }
+.btn { border-color: var(--border); border-bottom-color: rgba(92,76,64,.26); border-radius: 8px; background: linear-gradient(180deg,var(--control-top),var(--control-bottom)); color: var(--text); box-shadow: inset 0 1px var(--control-highlight),var(--shadow); transition: transform 80ms,border-color 140ms,box-shadow 140ms,background 140ms,color 140ms; }
+.btn:hover:not(:disabled) { transform: none; border-color: var(--focus); background: linear-gradient(180deg,var(--control-hover-top),var(--control-hover-bottom)); color: var(--text); box-shadow: inset 0 1px var(--control-highlight),var(--shadow-lg); }
 .btn:active:not(:disabled) { transform: translateY(1px); background: var(--control-pressed-top); box-shadow: var(--press-shadow); }
-.btn-primary { border-color: var(--accent); background: var(--accent); color: #fffaf5; }
-.btn-primary:hover:not(:disabled) { border-color: var(--accent-hover); background: var(--accent-hover); color: #fffaf5; }
+.btn-primary { border-color: rgba(74,44,32,.22); border-bottom-color: rgba(48,28,20,.42); background: var(--accent); color: #fffaf5; box-shadow: inset 0 1px rgba(255,255,255,.22),var(--shadow); }
+.btn-primary:hover:not(:disabled) { border-color: rgba(74,44,32,.32); border-bottom-color: rgba(48,28,20,.50); background: var(--accent-hover); color: #fffaf5; box-shadow: inset 0 1px rgba(255,255,255,.26),var(--shadow-lg); }
 :root[data-theme="dark"] .btn-primary,:root[data-theme="dark"] .btn-primary:hover:not(:disabled) { color: #271e18; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn-primary,:root:not([data-theme="light"]) .btn-primary:hover:not(:disabled) { color: #271e18; } }
 .btn-danger { border: 1px solid rgba(157,74,68,.36); background: transparent; color: #a44c46; }
@@ -2219,12 +2200,12 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    宽态的 `--side-w + 20px`。数值居中量在 ≥1024 下恒 ≥22px（内容盒 ≥980px），
    与 auto 视觉等价；max-width 也显式写死 936——`none` 与长度值同样不可插值。 */
 .backboard { position: relative; width: min(100%,936px); max-width: 936px; margin-left: calc((100% - 936px) / 2); margin-right: auto; padding: 48px 30px 30px; border-radius: 18px;
-    background: linear-gradient(168deg,var(--glass-strong),var(--glass));
-    box-shadow: inset 0 1px rgba(255,255,255,.72),inset 0 -1px rgba(105,81,63,.07),0 2px 6px rgba(67,51,39,.035),0 20px 48px rgba(67,51,39,.07);
+    background: linear-gradient(180deg,var(--glass-strong),var(--glass));
+    box-shadow: inset 0 1px rgba(255,255,255,.38),0 1px 3px rgba(67,51,39,.06),0 6px 18px rgba(67,51,39,.06);
     backdrop-filter: blur(20px) saturate(122%); -webkit-backdrop-filter: blur(20px) saturate(122%); }
-/* 顶边受光高光 */
+/* 顶边微弱受光 */
 .backboard::before { content: ''; position: absolute; left: 30px; right: 30px; top: 0; height: 1px; pointer-events: none;
-    background: linear-gradient(90deg,transparent,rgba(255,255,255,.95) 22%,rgba(255,255,255,.95) 78%,transparent); }
+    background: linear-gradient(90deg,transparent,rgba(255,255,255,.32) 22%,rgba(255,255,255,.32) 78%,transparent); }
 /* 四边发丝线：与 .category-header 分割线同一套 --divider-rgb 渐变语法 */
 .backboard::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; padding: 1px;
     background: linear-gradient(90deg,transparent 0%,rgba(var(--divider-rgb),.10) 14%,rgba(var(--divider-rgb),.21) 50%,rgba(var(--divider-rgb),.10) 86%,transparent 100%);
