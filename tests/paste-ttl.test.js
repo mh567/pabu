@@ -19,14 +19,14 @@ const MINUTE = 60 * 1000;
 
 test('the whitelist exposes exactly the four offered windows', () => {
     assert.equal(PASTE_TTL_OPTIONS[5], 5 * MINUTE);
-    assert.equal(PASTE_TTL_OPTIONS[30], 30 * MINUTE);
+    assert.equal(PASTE_TTL_OPTIONS[15], 15 * MINUTE);
+    assert.equal(PASTE_TTL_OPTIONS[60], 60 * MINUTE);
     assert.equal(PASTE_TTL_OPTIONS[1440], 24 * 60 * MINUTE);
-    assert.equal(PASTE_TTL_OPTIONS[10080], 7 * 24 * 60 * MINUTE);
     assert.equal(Object.keys(PASTE_TTL_OPTIONS).length, 4);
 });
 
 test('valid windows are accepted unchanged', () => {
-    for (const minutes of [5, 30, 1440, 10080]) {
+    for (const minutes of [5, 15, 60, 1440]) {
         assert.equal(resolvePasteTtlMinutes(minutes), minutes);
     }
 });
@@ -56,5 +56,6 @@ test('inherited object keys cannot poison the expiry timestamp', () => {
 test('a string that looks like a valid window is not silently accepted', () => {
     // JSON bodies may carry strings; the whitelist is keyed by number, so "5" is invalid
     assert.equal(resolvePasteTtlMinutes('5'), PASTE_DEFAULT_TTL_MINUTES);
-    assert.equal(resolvePasteTtlMinutes('10080'), PASTE_DEFAULT_TTL_MINUTES);
+    assert.equal(resolvePasteTtlMinutes('1440'), PASTE_DEFAULT_TTL_MINUTES);
+    assert.equal(resolvePasteTtlMinutes(10080), PASTE_DEFAULT_TTL_MINUTES);
 });

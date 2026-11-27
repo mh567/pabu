@@ -658,6 +658,7 @@ img.bookmark-icon {
     letter-spacing: 1px;
     margin-bottom: 8px;
     font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    cursor: pointer;
 }
 
 /* 文本分享 v2 的取件码是 26 位分组密钥，不能按短码字号硬排。 */
@@ -2193,7 +2194,7 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .caption-action:active { transform: translateY(1px); }
 .caption-action:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .search-caption kbd { padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--glass); font: inherit; }
-@media (max-width: 600px) { .app { padding: 25px 12px 48px; } .header { margin-bottom: 30px; } .search-caption { display: none; } .bookmarks { grid-template-columns: repeat(auto-fill,96px); gap: 8px; } .bookmark,.bookmark-text-only { min-height: 44px; padding: 6px 8px; } /* 底栏在窄屏就是手指在点：相邻两条入口必须各自撑到 44px 触控下限。 */ .site-footer-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; } .toast { bottom: calc(28px + env(safe-area-inset-bottom)); max-width: calc(100% - 24px); } .paste-result { padding: 15px 14px 13px; margin-top: 12px; } .paste-qr img { width: 132px; height: 132px; } }
+@media (max-width: 600px) { .app { padding: 25px 12px 48px; } .header { margin-bottom: 0; } .search-caption { flex-wrap: wrap; margin: 10px 0 22px; } .search-caption kbd { display: none; } .caption-action { min-height: 36px; padding: 6px 12px; font-size: 12px; } .bookmarks { grid-template-columns: repeat(auto-fill,96px); gap: 8px; } .bookmark,.bookmark-text-only { min-height: 44px; padding: 6px 8px; } /* 底栏在窄屏就是手指在点：相邻两条入口必须各自撑到 44px 触控下限。 */ .site-footer-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; } .toast { bottom: calc(28px + env(safe-area-inset-bottom)); max-width: calc(100% - 24px); } .paste-result { padding: 15px 14px 13px; margin-top: 12px; } .paste-qr img { width: 132px; height: 132px; } }
 /* 三列铺满可用宽度：原先的 max-width:304px 在 390px 宽的机型上右侧留出大片空白，
    且使上一条 ≤600px 规则里的 auto-fill 96px 变成死代码（同为 ≤480px 且同特异性，后者在后）。 */
 @media (max-width: 480px) { .bookmarks { max-width: 100%; grid-template-columns: repeat(3,minmax(0,1fr)); } }
@@ -2461,6 +2462,9 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    窄屏背板没有上内边距（≤1023px 全部清零），绝对定位会压到搜索框，
    那时退回常规流里的一行。 */
 .home-theme-toolbar { position: absolute; top: 8px; right: 30px; display: flex; justify-content: flex-end; margin: 0; }
+/* 窗口标题只属于系统材质主题（石墨）。经典与棱镜的工具栏没有窗口骨架，
+   留着这行字会变成右上一块无来由的文字，默认藏起，由石墨主题打开。 */
+.window-title { display: none; }
 /* 当前主题 + 向下展开的菜单。经典主题的背板自带可见边框与顶边受光，
     入口若再画实体胶囊会像贴在上沿的浮块；这里用无底无边的轻量入口，
     悬停与展开时才浮出底色。棱镜在 themes.css 里恢复玻璃胶囊。
@@ -2484,6 +2488,7 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 @media (pointer: coarse) {
     /* 宽高都要到 44：只有高度够、宽度 40px 的「说明 / 同步 / 编辑」实测仍判不可点。 */
     .site-footer-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 8px; }
+    .caption-action { min-height: 44px; padding: 8px 14px; }
     .home-theme-trigger { min-height: 44px; width: 80px; min-width: 80px; }
     .home-theme-menu [role="option"] { min-height: 44px; }
 }

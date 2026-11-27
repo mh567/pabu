@@ -76,16 +76,26 @@ test('a finished transfer can be taken once and is removed afterwards', async t 
     assert.equal(store.stats().entries, 0);
 });
 
-test('the PIN locks the transfer and three failures destroy it', async t => {
-    const { store } = makeStore(t);
+test('the PIN locks the client IP after three failures without destroying the transfer', async t => {
+    const { store } = makeStore(t, { pinMaxAttempts: 5 });
     await store.init(initInput({ pin: '2468' }));
     await store.writeChunk('tiger-123', 0, Buffer.alloc(36));
     await store.writeChunk('tiger-123', 1, Buffer.alloc(30));
     await store.finish('tiger-123');
 
-    await assert.rejects(store.access('tiger-123', '0000'), /剩余 2 次/);
-    await assert.rejects(store.access('tiger-123', '0000'), /剩余 1 次/);
-    await assert.rejects(store.access('tiger-123', '0000'), /已销毁/);
+    await assert.rejects(store.access('tiger-123', '0000', '1.1.1.1'), /剩余 2 次/);
+    await assert.rejects(store.access('tiger-123', '0000', '1.1.1.1'), /剩余 1 次/);
+    await assert.rejects(store.access('tiger-123', '0000', '1.1.1.1'), /15 分钟后再试/);
+    await assert.rejects(store.access('tiger-123', '2468', '1.1.1.1'), /15 分钟后再试/);
+    assert.equal(store.meta('tiger-123').exists, true);
+
+    // 换一个 IP 仍可取回
+    const ok = await store.access('tiger-123', '2468', '2.2.2.2');
+    assert.equal(ok.success, true);
+
+    // 多 IP 累计达到熔断上限时销毁文件
+    await assert.rejects(store.access('tiger-123', '0000', '3.3.3.3'), /剩余 2 次/);
+    await assert.rejects(store.access('tiger-123', '0000', '4.4.4.4'), /已销毁/);
     assert.equal(store.meta('tiger-123').exists, false);
 });
 

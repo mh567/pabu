@@ -65,7 +65,7 @@ test('bookmark icons: editing and settings expose custom address, refresh, and l
 test('bookmark icons: service worker upgrades preserve the dedicated icon cache', () => {
     const sw = read('sw.js');
     has(sw, /pabu-bookmark-icons-v1/, 'activation cleanup preserves dedicated icon cache');
-    has(sw, /const CACHE = 'pabu-v35'/, 'new icon module is installed through a new static cache version');
+    has(sw, /const CACHE = 'pabu-v41'/, 'new icon module is installed through a new static cache version');
 });
 
 test('bookmark icons: cache and request coordination live in a shared client module', () => {

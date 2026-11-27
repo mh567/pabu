@@ -109,9 +109,9 @@ const pasteStorage = new Map();
 // 把 expiresAt 变成 NaN 或字符串，导致条目永不过期、永不被清理。
 const PASTE_TTL_OPTIONS = Object.assign(Object.create(null), {
     5: 5 * 60 * 1000,
-    30: 30 * 60 * 1000,
-    1440: 24 * 60 * 60 * 1000,
-    10080: 7 * 24 * 60 * 60 * 1000
+    15: 15 * 60 * 1000,
+    60: 60 * 60 * 1000,
+    1440: 24 * 60 * 60 * 1000
 });
 const PASTE_DEFAULT_TTL_MINUTES = 5;
 
@@ -220,10 +220,19 @@ const pasteRateLimitMap = new Map();
 const PASTE_CREATE_LIMIT = 20;   // 每小时创建次数
 const PASTE_GET_LIMIT = 30;      // 每小时读取次数
 const PASTE_RATE_WINDOW = 3600000; // 1小时
+const PASTE_FAIL_LIMIT = 10;          // 15分钟内最多失败次数（防短码枚举）
+const PASTE_FAIL_WINDOW = 900000;     // 15分钟
+const PASTE_PIN_IP_LIMIT = 3;         // 同一IP对同一分享PIN最多试错3次，只锁该IP不删记录
+const PASTE_PIN_MAX_ATTEMPTS = 20;    // 同一分享累计PIN错误熔断上限（防分布式撞库）
 
 // 分享全局容量上限：限流按 IP 计数，多个 IP 仍可能共同堆高内存
 const PASTE_MAX_ENTRIES = 500;
 const PASTE_MAX_BYTES = 50 * 1024 * 1024;
+
+function isRateLimited(store, key, now, windowMs, limit) {
+    const record = store.get(key);
+    return !!(record && now - record.start <= windowMs && record.count >= limit);
+}
 
 // 纯函数形式：store 与 now 由调用方传入，便于注入时钟做确定性测试
 function consumeRateLimit(store, key, now, windowMs, limit) {
@@ -1301,8 +1310,13 @@ app.post('/api/p', (req, res) => {
 // 获取分享 (API)
 app.post('/api/p/:code', (req, res) => {
     const ip = resolveClientIp(req);
+    const now = Date.now();
+    const failKey = `${ip}:paste:fail`;
+    if (isRateLimited(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT)) {
+        return res.status(429).json({ error: '尝试失败次数过多，请稍后再试' });
+    }
 
-    if (!consumeRateLimit(pasteRateLimitMap, `${ip}:paste:get`, Date.now(), PASTE_RATE_WINDOW, PASTE_GET_LIMIT).allowed) {
+    if (!consumeRateLimit(pasteRateLimitMap, `${ip}:paste:get`, now, PASTE_RATE_WINDOW, PASTE_GET_LIMIT).allowed) {
         return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
     }
 
@@ -1316,33 +1330,45 @@ app.post('/api/p/:code', (req, res) => {
     const paste = pasteStorage.get(code);
 
     if (!paste) {
+        consumeRateLimit(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT);
         return res.status(404).json({ error: '分享不存在或已过期' });
     }
 
-    if (Date.now() > paste.expiresAt) {
+    if (now > paste.expiresAt) {
         pasteStorage.delete(code);
+        consumeRateLimit(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT);
         return res.status(404).json({ error: '分享已过期' });
     }
 
     // 取件证明先于 PIN：没有密钥的人连错误 PIN 都不该能试，
     // 否则拿到路径 ID 就能把别人的分享试到销毁。
     if (paste.proof && proof !== paste.proof) {
+        consumeRateLimit(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT);
         return res.status(403).json({ error: '取件证明不匹配', code: 'proof_required' });
     }
 
-    // PIN 验证
+    // PIN 验证：单 IP 错 3 次只锁定该 IP，不删除记录；仅在多 IP 累计达到熔断上限时才销毁
     if (paste.pin) {
         if (!pin) {
             return res.json({ requirePin: true });
         }
+        const pinIpKey = `${ip}:paste:pin:${code}`;
+        if (isRateLimited(pasteRateLimitMap, pinIpKey, now, PASTE_FAIL_WINDOW, PASTE_PIN_IP_LIMIT)) {
+            return res.status(429).json({ error: '当前设备 PIN 错误次数过多，请 15 分钟后再试' });
+        }
         if (pin !== paste.pin) {
+            consumeRateLimit(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT);
+            const pinQuota = consumeRateLimit(pasteRateLimitMap, pinIpKey, now, PASTE_FAIL_WINDOW, PASTE_PIN_IP_LIMIT);
             paste.attempts++;
-            if (paste.attempts >= 3) {
+            if (paste.attempts >= PASTE_PIN_MAX_ATTEMPTS) {
                 pasteStorage.delete(code);
-                console.log(`[Paste] Destroyed due to PIN failures: ${code}`);
+                console.log(`[Paste] Destroyed due to distributed PIN failures: ${code}`);
                 return res.status(403).json({ error: 'PIN 错误次数过多，分享已销毁' });
             }
-            return res.status(403).json({ error: `PIN 错误，剩余 ${3 - paste.attempts} 次尝试` });
+            if (pinQuota.remaining === 0) {
+                return res.status(429).json({ error: '当前设备 PIN 错误次数过多，请 15 分钟后再试' });
+            }
+            return res.status(403).json({ error: `PIN 错误，剩余 ${pinQuota.remaining} 次尝试` });
         }
     }
 
@@ -1456,7 +1482,7 @@ app.get('/api/file/:code/meta', publicReadLimit, (req, res) => {
 app.post('/api/file/:code/access', asyncRoute(async (req, res) => {
     const { code } = req.params;
     if (transferLimited(req, res, `${resolveClientIp(req)}:file:access`, TRANSFER_ACCESS_LIMIT)) return;
-    const result = await transferStore.access(code, (req.body || {}).pin);
+    const result = await transferStore.access(code, (req.body || {}).pin, resolveClientIp(req));
     res.setHeader('Cache-Control', 'no-store');
     res.json(result);
 }));
@@ -1608,8 +1634,18 @@ app.get('/p/:code', (req, res) => {
         return res.redirect('/');
     }
 
+    const ip = resolveClientIp(req);
+    const now = Date.now();
+    const failKey = `${ip}:paste:fail`;
+    if (isRateLimited(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT)) {
+        return res.status(429).send('尝试失败次数过多，请稍后再试');
+    }
+
     const paste = pasteStorage.get(code);
-    const exists = paste && Date.now() <= paste.expiresAt;
+    const exists = paste && now <= paste.expiresAt;
+    if (!exists) {
+        consumeRateLimit(pasteRateLimitMap, failKey, now, PASTE_FAIL_WINDOW, PASTE_FAIL_LIMIT);
+    }
     const requirePin = exists && paste.pin;
     const appearance = require('./public/navigation-schema').appearance(navigation.read('site').config);
 
@@ -1786,41 +1822,57 @@ app.get('/p/:code', (req, res) => {
     </div>
     <script src="/lib/highlight.min.js"></script>
     <script>
-        // 使用 URL fragment 中的密钥做端到端解密
+        const code = '${code}';
+        const rawFragment = decodeURIComponent(location.hash.slice(1)).trim();
+        const isShortMode = ShareCode.isShortCode(rawFragment);
+        const shareKeyRaw = isShortMode ? ShareCode.normalizeShortCode(rawFragment) : '';
+        const needsShareKey = ShareCode.isShareId(code) && !isShortMode;
+        let shareProof = null;
+
+        // 使用 URL fragment 中的 6 位取件码做端到端解密
         const Crypto = {
-            async shareKey() {
-                const raw = ShareCode.normalizeCode(location.hash.slice(1));
-                if (raw.length !== ShareCode.CODE_LENGTH) return null;
-                return crypto.subtle.importKey('raw', ShareCode.keyBytes(raw), 'AES-GCM', false, ['decrypt']);
+            fromBase64(b64) {
+                return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
             },
-            async decrypt(encryptedBase64) {
-                const key = await this.shareKey();
-                if (!key) throw new Error('缺少解密密钥');
-                const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-                const iv = combined.slice(0, 12);
-                const data = combined.slice(12);
+            async deriveShortKey(shortCode, salt, pin = '') {
+                const secret = pin ? (shortCode + ':' + pin) : shortCode;
+                const material = await crypto.subtle.importKey(
+                    'raw', new TextEncoder().encode(secret), 'PBKDF2', false, ['deriveKey']
+                );
+                return crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+                    material,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['decrypt']
+                );
+            },
+            async decrypt(encryptedPayload, pin = '') {
+                if (!isShortMode) throw new Error('缺少取件码');
+                if (typeof encryptedPayload !== 'string' || !encryptedPayload.startsWith('s1:')) {
+                    throw new Error('密文格式无效');
+                }
+                const parts = encryptedPayload.split(':');
+                if (parts.length !== 4) throw new Error('密文格式无效');
+                const salt = this.fromBase64(parts[1]);
+                const iv = this.fromBase64(parts[2]);
+                const data = this.fromBase64(parts[3]);
+                const key = await this.deriveShortKey(shareKeyRaw, salt, pin);
                 const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
                 return new TextDecoder().decode(decrypted);
             }
         };
-
-        const code = '${code}';
-        // v2 的 ID 单独出现时没有密钥，不能去取件，否则服务端会按阅后即焚删掉记录。
-        const shareKeyRaw = ShareCode.normalizeCode(location.hash.slice(1));
-        const needsShareKey = ShareCode.isShareId(code)
-            && shareKeyRaw.length !== ShareCode.CODE_LENGTH;
-        let shareProof = null;
 
         async function getShareProof() {
             if (!shareProof) shareProof = await ShareCode.deriveProof(shareKeyRaw);
             return shareProof;
         }
 
-        // 先确认 fragment 里的密钥确实散列成路径 ID，再决定是否发取件请求。
+        // 先确认 fragment 里的短码确实散列成路径 ID，再决定是否发取件请求。
         // 否则一个损坏的链接会先触发阅后即焚，内容就再也拿不回来了。
         async function verifyShareKey() {
             if (!ShareCode.isShareId(code)) return true;
-            if (shareKeyRaw.length !== ShareCode.CODE_LENGTH) return false;
+            if (!isShortMode) return false;
             return (await ShareCode.deriveId(shareKeyRaw)) === code;
         }
 
@@ -1872,9 +1924,9 @@ app.get('/p/:code', (req, res) => {
             target.textContent = text;
         }
 
-        async function showContent(encryptedContent) {
+        async function showContent(encryptedContent, pin = '') {
             try {
-                decryptedText = await Crypto.decrypt(encryptedContent, code);
+                decryptedText = await Crypto.decrypt(encryptedContent, pin);
                 renderContent(decryptedText);
                 document.getElementById('copyBtn').onclick = () => {
                     navigator.clipboard.writeText(decryptedText).then(() => {
@@ -1946,7 +1998,7 @@ app.get('/p/:code', (req, res) => {
                         '<div class="content" id="content">解密中...</div>' +
                         '<button class="btn" id="copyBtn">复制内容</button>' +
                         '<p class="notice">此内容已从服务器删除</p>';
-                    showContent(data.content);
+                    showContent(data.content, pin);
                 } else {
                     // 用 textContent 而非拼接 innerHTML：不必依赖「服务端错误文案恒为
                     // 固定字符串」这一隐含前提，将来任何把用户输入拼进 error 的改动

@@ -321,15 +321,15 @@ test('expiry radios share one name so the browser enforces mutual exclusion', as
     const names = new Set(ttlRadios.map(radio => radio.name));
     assert.equal(names.size, 1, `有效期单选项应共用一个 name，实际得到: ${[...names].join(', ')}`);
 
-    // 模拟浏览器：勾选 30 分钟后，同组其余项应自动取消
-    const thirty = ttlRadios.find(radio => radio.value === '30');
-    thirty.checked = true;
-    thirty.fire('change', {});
+    // 模拟浏览器：勾选 15 分钟后，同组其余项应自动取消
+    const fifteen = ttlRadios.find(radio => radio.value === '15');
+    fifteen.checked = true;
+    fifteen.fire('change', {});
     assert.equal(ttlRadios.filter(radio => radio.checked).length, 1);
 
     overlay.querySelector('form').fire('submit', { preventDefault() {} });
     await pending;
-    assert.equal(shares[0][2].ttlMinutes, 30);
+    assert.equal(shares[0][2].ttlMinutes, 15);
 });
 
 test('dialogs and the composer yield to the on-screen keyboard', () => {

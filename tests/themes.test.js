@@ -124,32 +124,34 @@ test('themes: fixed dark style preserves the saved classic mode', () => {
     assert.deepEqual(schema.appearance({ ...config, themeStyle: 'classic', theme: 'light' }), { style: 'classic', mode: 'light' });
 });
 
-test('themes: site styles persist through real HTTP writes and restart', async t => {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const bcrypt = require('bcrypt');
-    const { installation } = require('./helpers/installation');
-    const app = await installation(t);
-    fs.writeFileSync(path.join(app.dir, '.admin-password.json'), JSON.stringify({ passwordHash: await bcrypt.hash('StrongPass123!', 4) }));
-    await app.start();
-    const login = await app.request('/api/verify-password', { password: 'StrongPass123!', body: {} });
-    const cookie = login.headers.get('set-cookie').split(';')[0];
-    const site = await (await app.request('/api/admin/navigation', { cookie })).json();
-    const prism = { ...site.config, themeStyle: 'prism', theme: 'light' };
-    assert.equal((await app.request('/api/admin/navigation', { cookie, body: { config: prism, revision: site.revision, operationId: 'theme-site' } })).status, 200);
-    assert.equal((await (await app.request('/api/config')).json()).themeStyle, 'prism');
-    assert.equal((await (await app.request('/api/config')).json()).theme, 'light');
-    await app.stop();
-    await app.start();
-    assert.equal((await (await app.request('/api/config')).json()).themeStyle, 'prism');
-    const persisted = await (await app.request('/api/admin/navigation', { cookie })).json();
-    assert.equal(persisted.config.themeStyle, 'prism');
-    assert.equal(persisted.config.theme, 'light');
-    // 文本分享只接受 26 位散列 ID 页面；这里不创建内容，只校验页面主题落盘。
-    const share = await (await app.request('/p/abcdefghijklmnopqrstuvwxyz')).text();
-    assert.match(share, /data-theme-style="prism" data-theme="dark"/);
-    assert.match(share, /href="\/themes.css"/);
-});
+for (const style of ['prism', 'graphite']) {
+    test(`themes: ${style} persists through real HTTP writes and restart`, async t => {
+        const fs = require('node:fs');
+        const path = require('node:path');
+        const bcrypt = require('bcrypt');
+        const { installation } = require('./helpers/installation');
+        const app = await installation(t);
+        fs.writeFileSync(path.join(app.dir, '.admin-password.json'), JSON.stringify({ passwordHash: await bcrypt.hash('StrongPass123!', 4) }));
+        await app.start();
+        const login = await app.request('/api/verify-password', { password: 'StrongPass123!', body: {} });
+        const cookie = login.headers.get('set-cookie').split(';')[0];
+        const site = await (await app.request('/api/admin/navigation', { cookie })).json();
+        const themed = { ...site.config, themeStyle: style, theme: 'light' };
+        assert.equal((await app.request('/api/admin/navigation', { cookie, body: { config: themed, revision: site.revision, operationId: 'theme-site' } })).status, 200);
+        assert.equal((await (await app.request('/api/config')).json()).themeStyle, style);
+        assert.equal((await (await app.request('/api/config')).json()).theme, 'light');
+        await app.stop();
+        await app.start();
+        assert.equal((await (await app.request('/api/config')).json()).themeStyle, style);
+        const persisted = await (await app.request('/api/admin/navigation', { cookie })).json();
+        assert.equal(persisted.config.themeStyle, style);
+        assert.equal(persisted.config.theme, 'light');
+        // 文本分享只接受 26 位散列 ID 页面；这里不创建内容，只校验页面主题落盘。
+        const share = await (await app.request('/p/abcdefghijklmnopqrstuvwxyz')).text();
+        assert.ok(share.includes(`data-theme-style="${style}" data-theme="dark"`));
+        assert.match(share, /href="\/themes.css"/);
+    });
+}
 
 
 test('themes: explicit classic installation remains classic after default changes and restart', async t => {
@@ -165,4 +167,30 @@ test('themes: explicit classic installation remains classic after default change
     await app.stop();
     await app.start();
     assert.equal((await (await app.request('/api/config')).json()).themeStyle, 'classic');
+});
+
+
+test('themes: graphite survives projection and fixes darkness without losing classic preference', () => {
+    const graphite = { ...config, theme: 'light', themeStyle: 'graphite' };
+    assert.deepEqual(schema.validate(schema.publicConfig(graphite)), graphite);
+    assert.deepEqual(schema.appearance(graphite), { style: 'graphite', mode: 'dark' });
+    assert.deepEqual(schema.appearance({ ...graphite, themeStyle: 'classic' }), { style: 'classic', mode: 'light' });
+});
+
+
+test('themes: file share restores registered styles with their fixed mode', () => {
+    const vm = require('node:vm');
+    const html = fs.readFileSync(path.join(__dirname, '../public/file.html'), 'utf8');
+    assert.ok(html.indexOf('src="/navigation-schema.js"') < html.indexOf('<script>'));
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+    for (const [style, expected] of [['graphite', 'dark'], ['prism', 'dark'], ['classic', 'light'], ['unknown', undefined]]) {
+        const dataset = {};
+        vm.runInNewContext(script, {
+            NavigationSchema: schema,
+            sessionStorage: { getItem: () => JSON.stringify({ style, mode: 'light' }) },
+            document: { documentElement: { dataset } }
+        });
+        assert.equal(dataset.theme, expected);
+        assert.equal(dataset.themeStyle, expected ? style : undefined);
+    }
 });

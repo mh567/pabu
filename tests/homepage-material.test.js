@@ -70,22 +70,14 @@ function ruleBlock(css, selector, requiredIn) {
     return match;
 }
 
-test('快捷键说明行只在桌面出现', () => {
+test('快捷入口行在桌面和移动端均可用，移动端隐藏键盘提示', () => {
     const base = ruleBlock(code, '.search-caption', 'justify-content');
-    assert.match(base, /display:\s*flex/, '桌面端用 flex 居中排布两段提示');
-    assert.equal(/display:\s*none/.test(base), false, '基础规则不应隐藏说明行');
+    assert.match(base, /display:\s*flex/, '桌面端用 flex 居中排布入口');
+    assert.equal(/display:\s*none/.test(base), false, '基础规则不应隐藏入口行');
 
     const narrow = mediaBlock(code, '@media (max-width: 600px)', '.search-caption');
-    assert.match(narrow, /\.search-caption\s*\{[^}]*display:\s*none/, '≤600px 必须隐藏（手机没有物理键盘）');
-
-    // 源码顺序即层叠顺序：基础规则排在 600px 块之后时，
-    // 同特异性的 display:flex 会把块里的 display:none 压掉，
-    // 表现是手机上说明行照样显示。这类问题单看两条规则都「有」，
-    // 只有断言相对位置才抓得住。
-    const baseIdx = code.indexOf('.search-caption { display: flex');
-    const blockIdx = code.indexOf('@media (max-width: 600px)', code.indexOf('.search-caption { display: flex') - 200);
-    assert.ok(baseIdx > -1, '找到说明行基础规则');
-    assert.ok(baseIdx < blockIdx, '基础规则必须排在 ≤600px 块之前，否则移动端隐藏会被覆盖');
+    assert.match(narrow, /\.search-caption\s*\{[^}]*flex-wrap:\s*wrap/, '≤600px 自动换行不溢出');
+    assert.match(narrow, /\.search-caption\s+kbd\s*\{[^}]*display:\s*none/, '≤600px 隐藏物理键盘提示');
 });
 
 test('三个搜索按钮的色相锚点各自只定义一次', () => {

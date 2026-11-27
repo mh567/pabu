@@ -9,17 +9,9 @@
 
     // ========== 端到端加密工具 ==========
     const Crypto = {
-        // 文本分享 v2：取件码本身是 128 位随机密钥，服务端只拿到它的散列 ID。
-        async importShareKey(code) {
-            return crypto.subtle.importKey(
-                'raw', ShareCode.keyBytes(code), 'AES-GCM', false, ['encrypt', 'decrypt']
-            );
-        },
-
         // 一期服务器中转文件仍用单词取件码派生 AES-GCM 密钥。
         // 取件页 public/file.html 的 deriveKey 使用同一组 PBKDF2 参数，
-        // 两边必须逐字一致。文本分享 v2 改造时删掉过这里，
-        // 结果是实时直连失败回退中转时上传直接抛 Crypto.deriveKey is not a function。
+        // 两边必须逐字一致。
         async deriveKey(code) {
             const enc = new TextEncoder();
             const material = await crypto.subtle.importKey(
@@ -34,17 +26,35 @@
             );
         },
 
-        async encryptWithCode(text, code) {
-            const key = await this.importShareKey(code);
-            const enc = new TextEncoder();
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(text));
-            const combined = new Uint8Array(iv.length + encrypted.byteLength);
-            combined.set(iv);
-            combined.set(new Uint8Array(encrypted), iv.length);
+        toBase64(bytes) {
             let binary = '';
-            for (const byte of combined) binary += String.fromCharCode(byte);
+            for (const byte of bytes) binary += String.fromCharCode(byte);
             return btoa(binary);
+        },
+
+        async deriveShortKey(shortCode, salt, pin = '') {
+            const enc = new TextEncoder();
+            const secret = pin ? `${shortCode}:${pin}` : shortCode;
+            const material = await crypto.subtle.importKey(
+                'raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']
+            );
+            return crypto.subtle.deriveKey(
+                { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+                material,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        },
+
+        async encryptWithShortCode(text, shortCode, pin = '') {
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const key = await this.deriveShortKey(shortCode, salt, pin);
+            const encrypted = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv }, key, new TextEncoder().encode(text)
+            );
+            return `s1:${this.toBase64(salt)}:${this.toBase64(iv)}:${this.toBase64(new Uint8Array(encrypted))}`;
         }
     };
 
@@ -3188,7 +3198,7 @@
             if (modeSelect) { modeSelect.disabled = fixed; modeSelect.value = theme; }
             document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
                 const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-                meta.content = appearance.style === 'prism' ? '#1b232b' : dark ? '#211f1c' : '#efede8';
+                meta.content = appearance.style === 'graphite' ? '#1c1c1e' : appearance.style === 'prism' ? '#1b232b' : dark ? '#211f1c' : '#efede8';
                 if (theme === 'auto') {
                     meta.content = meta.media.includes('dark') ? '#211f1c' : '#efede8';
                 }
@@ -3372,9 +3382,9 @@
                 this.pickupDismissedCode = null;
                 input.value = (pickup.kind === 'link' || pickup.kind === 'word-link')
                     ? pickup.href
-                    : (pickup.kind === 'word' || pickup.kind === 'rtc')
-                        ? pickup.code
-                        : ShareCode.groupCode(pickup.code);
+                    : pickup.kind === 'short'
+                        ? ShareCode.formatShortCode(pickup.code)
+                        : pickup.code;
                 this.handleSearchInput(input);
             });
             const settleDrag = () => {
@@ -4396,10 +4406,16 @@
 
             if (ShareCode.isRtcCode(raw)) return { kind: 'rtc', key: 'rtc:' + raw, code: raw };
 
+            if (ShareCode.isShortCode(raw)) {
+                const code = ShareCode.normalizeShortCode(raw);
+                return { kind: 'short', key: 'short:' + code, code };
+            }
+
             const link = /^https?:\/\/[^\s/]+\/p\/([a-z2-7]{26})(?:[/?#]([^\s]*))?$/i.exec(raw);
             if (link) {
                 const id = link[1].toLowerCase();
-                const hasKey = ShareCode.normalizeCode(link[2] || '').length === ShareCode.CODE_LENGTH;
+                const fragment = link[2] || '';
+                const hasKey = ShareCode.isShortCode(fragment);
                 return { kind: 'link', key: (hasKey ? 'text:' : 'id:') + id, href: raw, id };
             }
 
@@ -4415,10 +4431,6 @@
                 return { kind: 'word', key: 'word:' + code, code };
             }
 
-            if (ShareCode.isCode(raw)) {
-                const code = ShareCode.normalizeCode(raw);
-                return { kind: 'key', key: 'key:' + code, code };
-            }
             return null;
         }
 
@@ -4561,21 +4573,21 @@
                 location.assign('/p/' + encodeURIComponent(pickup.code));
                 return;
             }
-            if (pickup.kind === 'key') {
-                // 码即密钥，ID 由它的散列在本地算出，服务端不参与。
+            if (pickup.kind === 'short') {
+                // 6 位短码即密钥，ID 由它的散列在本地算出，服务端不参与。
                 location.assign(`/p/${await ShareCode.deriveId(pickup.code)}#${pickup.code}`);
             }
         }
 
         async showPasteOptions(content) {
-            const PASTE_TTL_LABELS = { 5: '5 分钟', 30: '30 分钟', 1440: '1 天', 10080: '7 天' };
+            const PASTE_TTL_LABELS = { 5: '5 分钟', 15: '15 分钟', 60: '1 小时', 1440: '1 天' };
 
             const result = await this.showUiDialog({
                 title: '分享保护',
                 options: [
                     { kind: 'checkbox', name: 'pin', value: 'on', label: '设置 PIN 码保护', hint: '接收方需输入 PIN 才能查看内容', reveal: true }
                 ],
-                // 四档有效期排成 2×2：单行「30 分钟」不折行，触摸目标也够大
+                // 四档有效期排成 2×2：单行「15 分钟」不折行，触摸目标也够大
                 groups: [
                     {
                         label: '有效期',
@@ -4611,34 +4623,39 @@
 
         async createPaste(content, pin = null, options = {}) {
             try {
-                // v2：取件码在浏览器生成，本身就是 128 位密钥。
-                // 服务端只拿到散列后的 ID 与密文，拿不到密钥。
-                const code = ShareCode.generateCode();
-                const id = await ShareCode.deriveId(code);
-                const proof = await ShareCode.deriveProof(code);
-                const encryptedContent = await Crypto.encryptWithCode(content, code);
+                let data = null;
+                let code = '';
+                let id = '';
 
-                const body = { code: id, content: encryptedContent, proof };
-                if (pin) body.pin = pin;
-                if (options.ttlMinutes) body.ttl = options.ttlMinutes;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    code = ShareCode.generateShortCode();
+                    id = await ShareCode.deriveId(code);
+                    const proof = await ShareCode.deriveProof(code);
+                    const encryptedContent = await Crypto.encryptWithShortCode(content, code, pin || '');
 
-                const res = await fetch('/api/p', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                const data = await res.json();
+                    const body = { code: id, content: encryptedContent, proof };
+                    if (pin) body.pin = pin;
+                    if (options.ttlMinutes) body.ttl = options.ttlMinutes;
 
-                if (data.success) {
+                    const res = await fetch('/api/p', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    data = await res.json();
+                    if (data.success || data.error !== '分享码已被使用') break;
+                }
+
+                if (data && data.success) {
                     $('#searchInput').value = '';
                     this.pasteMode = false;
                     this.togglePasteMode(false);
-                    this.showPasteResult(code, !!pin, data.expiresAt, {
+                    this.showPasteResult(ShareCode.formatShortCode(code), !!pin, data.expiresAt, {
                         kind: 'text',
-                        link: `${location.origin}/p/${id}#${ShareCode.normalizeCode(code)}`
+                        link: `${location.origin}/p/${id}#${code}`
                     });
                 } else {
-                    this.showToast(data.error || '创建分享失败', 'error');
+                    this.showToast((data && data.error) || '创建分享失败', 'error');
                 }
             } catch (e) {
                 this.showToast('创建分享失败: ' + e.message, 'error');
@@ -4658,7 +4675,7 @@
                 <div class="paste-result" id="pasteResult">
                     <button class="paste-close" type="button" aria-label="关闭分享结果">×</button>
                     <div class="paste-label">取件码</div>
-                    <div class="paste-code${longCode}">${this.esc(code)}</div>
+                    <div class="paste-code${longCode}" role="button" tabindex="0" title="点击复制取件码">${this.esc(code)}</div>
                     ${fileInfo}
                     ${pinInfo}
                     <div class="paste-qr"><img alt="分享链接二维码"></div>
@@ -4670,6 +4687,22 @@
             `);
 
             result.querySelector('.paste-close').onclick = () => this.hidePasteResult();
+
+            const codeEl = result.querySelector('.paste-code');
+            const copyCode = async () => {
+                const text = ShareCode.isShortCode(code) ? ShareCode.normalizeShortCode(code) : code;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    this.showToast('取件码已复制', 'success');
+                } catch {}
+            };
+            codeEl.onclick = copyCode;
+            codeEl.onkeydown = (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    copyCode();
+                }
+            };
 
             // 二维码：使用本地图库生成 data URL，失败时静默隐藏，不影响复制链接。
             // qrcode.js 经 loadScript 按需加载，加载完成后再生成，
@@ -4781,10 +4814,10 @@
                 return abortRelay();
             }
 
-            const TTL_LABELS = { 5: '5 分钟', 30: '30 分钟', 1440: '1 天', 10080: '7 天' };
+            const TTL_LABELS = { 5: '5 分钟', 15: '15 分钟', 60: '1 小时', 1440: '1 天' };
             // 直连失败回退中转时，上传可能要几分钟，默认 5 分钟太紧；
-            // 文件失效时间从上传播开始算，接收方还没下载就可能过期。
-            const defaultTtl = typeof notifyRelay === 'function' ? 30 : 5;
+            // 文件失效时间从上传开始算，接收方还没下载就可能过期。
+            const defaultTtl = typeof notifyRelay === 'function' ? 15 : 5;
             const result = await this.showUiDialog({
                 title: '分享文件',
                 message: `${file.name} · ${this.formatBytes(file.size)}`,
@@ -5208,7 +5241,7 @@
                 <section class="admin-panel" role="tabpanel" id="adminPanelSite" aria-labelledby="adminTabSite">
                     <div class="section"><div class="section-title">站点默认导航</div><p class="fav-hint">一比一复刻访客默认首页。直接拖拽分类与链接，点 ＋ 增删，编辑后点右上角「保存并发布」生效。</p>
                         <div class="site-canvas" id="siteCanvas"><div class="backboard">
-                            <div class="home-theme-toolbar"><div class="home-theme-switcher" id="siteThemeSwitcher" role="group" aria-label="视觉主题"></div></div>
+                            <div class="home-theme-toolbar"><div class="window-title">Pabu 导航</div><div class="home-theme-switcher" id="siteThemeSwitcher" role="group" aria-label="视觉主题"></div></div>
                             <header class="header" id="siteHeader"></header>
                             <div class="search-caption" aria-hidden="true"><span class="caption-action"><kbd>输入&gt;</kbd>分享文本</span><span class="caption-action"><kbd>输入》</kbd>分享文件</span><span class="caption-action"><kbd>输入取件码</kbd> 取回文本文件</span></div>
                             <main class="grid" id="siteGrid"></main>
