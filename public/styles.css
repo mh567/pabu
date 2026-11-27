@@ -1999,9 +1999,8 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 .search {
     --glow-x: 50%; --glow-y: 0%; position: relative; min-height: 56px;
     padding: 5px; border-color: rgba(132,109,92,.24); border-radius: 13px;
-    background: linear-gradient(165deg,var(--glass-strong),var(--glass));
-    box-shadow: inset 0 1px rgba(255,255,255,.76),inset 0 -1px rgba(105,81,63,.08),0 3px 8px rgba(67,51,39,.045),0 12px 27px rgba(67,51,39,.065);
-    backdrop-filter: blur(18px) saturate(125%); -webkit-backdrop-filter: blur(18px) saturate(125%);
+    background: var(--bg-card);
+    box-shadow: inset 0 1px rgba(255,255,255,.55),0 1px 3px rgba(67,51,39,.06),0 4px 12px rgba(67,51,39,.05);
     /* 过渡属性必须与上面「Paste 分享模式」区块一致：这里同特异性且更靠后，
        漏写 min-height/padding/border-radius 会让展开动画整条失效 */
     transition: min-height var(--transition), padding var(--transition), border-radius var(--transition), border-color 160ms, box-shadow 160ms, background 160ms;
@@ -2140,7 +2139,7 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn-danger,:root:not([data-theme="light"]) .config-save-status[data-state="error"] { color: #e9a69d; } }
 .bookmark:focus-visible,.btn:focus-visible,.site-footer-link:focus-visible,.search-mode:focus-visible,.search-btn:focus-visible,.search-engine:focus-visible,.fav-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .item-row input:focus,.setting-row select:focus,.fav-form input:focus,.fav-form select:focus { border-color: var(--focus); outline: none; box-shadow: 0 0 0 3px rgba(148,94,74,.09); }
-.toast { border: 1px solid var(--border); background: var(--glass-strong); color: var(--text); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.toast { border: 1px solid var(--border); background: var(--bg-card); color: var(--text); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .search,.engine-dropdown,.fav-dropdown,.modal-content,.help-content,.fav-dialog,.toast,.backboard { background: var(--bg-card); } }
 @media (prefers-reduced-transparency: reduce) { .search,.engine-dropdown,.fav-dropdown,.modal-content,.help-content,.fav-dialog,.toast,.backboard { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg-card); } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } .bookmark:hover,.btn:hover,.search-engine:hover,.search-btn:hover { transform: none; } }
@@ -2443,9 +2442,6 @@ body { font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang 
    窄屏背板没有上内边距（≤1023px 全部清零），绝对定位会压到搜索框，
    那时退回常规流里的一行。 */
 .home-theme-toolbar { position: absolute; top: 8px; right: 30px; display: flex; justify-content: flex-end; margin: 0; }
-/* 窗口标题只属于系统材质主题（石墨）。经典与棱镜的工具栏没有窗口骨架，
-   留着这行字会变成右上一块无来由的文字，默认藏起，由石墨主题打开。 */
-.window-title { display: none; }
 /* 当前主题 + 向下展开的菜单。经典主题的背板自带可见边框与顶边受光，
     入口若再画实体胶囊会像贴在上沿的浮块；这里用无底无边的轻量入口，
     悬停与展开时才浮出底色。棱镜在 themes.css 里恢复玻璃胶囊。

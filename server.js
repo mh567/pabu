@@ -474,7 +474,12 @@ app.get(['/admin', '/admin/'], (req, res) => res.sendFile(publicIndex));
 
 app.use(express.static(path.join(config.rootDir, 'public'), {
     index: 'index.html',
-    extensions: ['html', 'htm']
+    extensions: ['html', 'htm'],
+    setHeaders(res, filePath) {
+        if (/[\\/](?:fonts|lib)[\\/]/.test(filePath) || /\.(?:woff2?|svg)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=2592000');
+        }
+    }
 }));
 
 const rateLimitMap = new Map();

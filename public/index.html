@@ -52,6 +52,11 @@
          故不能按需加载，只能改为非阻塞。 -->
     <link rel="stylesheet" href="admin.css" media="print" onload="this.media='all'">
     <link rel="stylesheet" href="themes.css">
+    <!-- 分享二维码、实时文件传输与书签图标模块按需加载，见 app.js。 -->
+    <script defer src="navigation-schema.js"></script>
+    <script defer src="share-code.js"></script>
+    <script defer src="local-navigation.js"></script>
+    <script defer src="app.js"></script>
 </head>
 <body>
     <div class="loader" id="loader"></div>
@@ -59,7 +64,6 @@
         <!-- 宽屏背板：收束整块内容；≤1023px 由 CSS 退回为透明容器 -->
         <div class="backboard">
         <div class="home-theme-toolbar">
-            <div class="window-title">Pabu 导航</div>
             <div id="homeThemeSwitcher" class="home-theme-switcher" role="group" aria-label="视觉主题"></div>
         </div>
         <header class="header">
@@ -176,12 +180,5 @@
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <input type="file" id="transferFileInput" hidden>
-    <!-- 分享二维码按需加载，见 app.js loadScript。 -->
-    <script src="navigation-schema.js"></script>
-    <script src="share-code.js"></script>
-    <script src="local-navigation.js"></script>
-    <script src="rtc-transfer.js"></script>
-    <script src="bookmark-icons.js"></script>
-    <script src="app.js"></script>
 </body>
 </html>

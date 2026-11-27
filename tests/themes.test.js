@@ -124,7 +124,7 @@ test('themes: fixed dark style preserves the saved classic mode', () => {
     assert.deepEqual(schema.appearance({ ...config, themeStyle: 'classic', theme: 'light' }), { style: 'classic', mode: 'light' });
 });
 
-for (const style of ['prism', 'graphite']) {
+for (const style of ['prism']) {
     test(`themes: ${style} persists through real HTTP writes and restart`, async t => {
         const fs = require('node:fs');
         const path = require('node:path');
@@ -170,20 +170,12 @@ test('themes: explicit classic installation remains classic after default change
 });
 
 
-test('themes: graphite survives projection and fixes darkness without losing classic preference', () => {
-    const graphite = { ...config, theme: 'light', themeStyle: 'graphite' };
-    assert.deepEqual(schema.validate(schema.publicConfig(graphite)), graphite);
-    assert.deepEqual(schema.appearance(graphite), { style: 'graphite', mode: 'dark' });
-    assert.deepEqual(schema.appearance({ ...graphite, themeStyle: 'classic' }), { style: 'classic', mode: 'light' });
-});
-
-
 test('themes: file share restores registered styles with their fixed mode', () => {
     const vm = require('node:vm');
     const html = fs.readFileSync(path.join(__dirname, '../public/file.html'), 'utf8');
     assert.ok(html.indexOf('src="/navigation-schema.js"') < html.indexOf('<script>'));
     const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-    for (const [style, expected] of [['graphite', 'dark'], ['prism', 'dark'], ['classic', 'light'], ['unknown', undefined]]) {
+    for (const [style, expected] of [['prism', 'dark'], ['classic', 'light'], ['unknown', undefined]]) {
         const dataset = {};
         vm.runInNewContext(script, {
             NavigationSchema: schema,

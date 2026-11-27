@@ -4,8 +4,7 @@ const FIELDS = ['theme', 'themeStyle', 'showBookmarkIcons', 'searchEngine', 'sea
 // 新主题在此注册；样式集中在 themes.css，明暗偏好独立保留。
 const THEMES = Object.freeze({
     classic: Object.freeze({ name: '经典', mode: null }),
-    prism: Object.freeze({ name: '棱镜', mode: 'dark' }),
-    graphite: Object.freeze({ name: '石墨', mode: 'dark' })
+    prism: Object.freeze({ name: '棱镜', mode: 'dark' })
 });
 function appearance(config) {
     const style = Object.hasOwn(THEMES, config.themeStyle) ? config.themeStyle : 'prism';

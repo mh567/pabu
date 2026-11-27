@@ -582,7 +582,8 @@ test('管理端 trust-device 端点接受显式的 trusted 布尔值', () => {
 test('管理面板提供信任此设备开关，且失败时回滚显示状态', () => {
     // 开关的 checked 是「用户点完之后的意图」，不等于服务端真实状态。
     // 服务端没接受却把开关留在新位置，用户就会看到一个假的档位。
-    const code = stripComments(appSource);
+    const adminSource = fs.readFileSync(path.join(ROOT, 'public/admin.js'), 'utf8');
+    const code = stripComments(adminSource);
     assert.match(code, /id="trustDeviceToggle"/, '管理面板要有该开关');
     assert.match(code, /\$\('#trustDeviceToggle'\)\.checked = this\.sessionTrusted/,
         '开关初值须反映真实的会话可信状态');
@@ -632,8 +633,9 @@ test('重新登录后必须复位 envChangeNotified', () => {
     // 修复前：envChangeNotified 一旦置真，只有显式点「退出登录」才会复位。
     // 于是「环境变化 → 看到提示 → 重新登录 → 再次环境变化」这条极常见的路径上，
     // 第二次登出**完全没有提示**，用户只看到自己被踢出去却没有任何说明。
-    const code = stripComments(appSource);
-    const login = code.slice(code.indexOf('async openAdmin()'), code.indexOf('\n        markConfigDirty() {'));
+    const adminSource = fs.readFileSync(path.join(ROOT, 'public/admin.js'), 'utf8');
+    const code = stripComments(adminSource);
+    const login = code.slice(code.indexOf('async openAdmin()'), code.indexOf('markConfigDirty() {'));
     assert.match(login, /API\.envChangeNotified = false;/,
         '重新登录成功后必须复位，否则本轮再次环境变化不会提示');
     // 复位必须发生在 authenticated = true 之后，否则旧会话的迟到响应会再置真

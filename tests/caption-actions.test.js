@@ -7,6 +7,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'public/index.html'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
+const admin = fs.readFileSync(path.join(__dirname, '..', 'public/admin.js'), 'utf8');
 
 test('搜索框下方的三段说明都渲染成可点击按钮', () => {
     const start = html.indexOf('<div class="search-caption"');
@@ -39,7 +40,7 @@ test('半角 > 与全角 》 分别触发文本分享和文件选择', () => {
 });
 
 test('管理后台的站点预览同步显示三段说明', () => {
-    const preview = app.slice(app.indexOf('class="search-caption" aria-hidden="true"'));
+    const preview = admin.slice(admin.indexOf('class="search-caption" aria-hidden="true"'));
     const line = preview.slice(0, preview.indexOf('</div>'));
     assert.equal((line.match(/caption-action/g) || []).length, 3, '预览里也保留三个胶囊形状');
 });

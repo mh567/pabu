@@ -56,15 +56,3 @@ test('theme switcher: administrator identity does not change the save path', asy
     assert.equal(localSaves, 1, '管理员登录后仍写本机导航');
     assert.equal(app.themeStyleSaving, false);
 });
-
-
-test('theme switcher: graphite saves through the existing local path', async () => {
-    const app = context({ async saveLocalNavigation(config) {
-        assert.equal(config.themeStyle, 'graphite');
-        assert.equal(config.theme, 'light');
-        return true;
-    } });
-    await switchTheme.call(app, 'graphite');
-    assert.equal(app.config.themeStyle, 'graphite');
-    assert.equal(app.themeStyleSaving, false);
-});

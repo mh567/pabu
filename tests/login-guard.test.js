@@ -239,7 +239,8 @@ test('锁定响应带 code 与 retryAfter，供客户端区分', () => {
 test('远程备份配置改为首次展开时加载，不再每次重渲染都预取', () => {
     // 修复前在 renderAdminPanel 末尾预取：每次保存配置、增删分类都会重渲染，
     // 于是每次都多打一次请求，累积起来撞上管理接口的限流。
-    const c = stripComments(appSource);
+    const adminJs = fs.readFileSync(path.join(__dirname, '..', 'public/admin.js'), 'utf8');
+    const c = stripComments(adminJs);
     const panel = methodBody(c, 'renderAdminPanel() {');
     assert.ok(panel.length > 5000, 'renderAdminPanel 切片完整（含整块面板模板）');
     assert.doesNotMatch(panel, /this\.loadWebDAVConfig\(\)/,
@@ -248,7 +249,8 @@ test('远程备份配置改为首次展开时加载，不再每次重渲染都�
 
 test('全库不得残留「解构 res 后再 res.json()」的写法', () => {
     // 这一类错误在源码里看着完全正常，只有运行时才炸，必须全库扫。
-    const c = stripComments(appSource);
+    const adminJs = fs.readFileSync(path.join(__dirname, '..', 'public/admin.js'), 'utf8');
+    const c = stripComments(adminJs);
     const bad = c.match(/const\s*\{\s*res\s*\}\s*=\s*await API\.request\([^)]*\)\s*;\s*\n\s*const\s+data\s*=\s*await res\.json\(\)/g) || [];
     assert.deepEqual(bad, [], `仍有 ${bad.length} 处二次读取 body`);
 });

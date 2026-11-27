@@ -1218,15 +1218,16 @@ test('搜索引擎编辑器不受影响：它与书签编辑器共用过 .item �
     // `assert.match(panel, /this\.renderEnginesEditor\(\)/)` 在删掉初始化
     // 调用后照样匹配——实测过，守卫是假绿的。判据必须是「紧跟在
     // bindAdminTabs() 之后」：这两行是面板每次渲染的固定序列。
-    const code = stripComments(appSource);
+    const adminSource = fs.readFileSync(path.join(__dirname, '..', 'public/admin.js'), 'utf8');
+    const code = stripComments(adminSource);
     assert.match(code, /id="enginesEditor"/, '搜索引擎编辑器容器在');
     assert.match(code, /id="addEngine"/, '「添加搜索引擎」按钮在');
-    const panel = methodBody(appSource, 'renderAdminPanel');
+    const panel = methodBody(adminSource, 'renderAdminPanel');
     assert.match(panel, /this\.renderSiteControls\(\);/, '面板初始化时渲染站点控件');
-    const controls = methodBodyOf(appCode, 'renderSiteControls() {');
+    const controls = methodBodyOf(adminSource, 'renderSiteControls() {');
     assert.match(controls, /this\.renderEnginesEditor\(\);/, '站点控件初始化搜索引擎编辑器');
-    assert.match(appSource, /class="item-row"/, '共用的 .item-row 仍在用');
-    assert.match(appSource, /class="item" data-idx=/, '共用的 .item 仍在用');
+    assert.match(adminSource, /class="item-row"/, '共用的 .item-row 仍在用');
+    assert.match(adminSource, /class="item" data-idx=/, '共用的 .item 仍在用');
     assert.match(fullCode, /\.item-row\s*\{/, '共用的 .item-row 样式仍在');
     assert.match(adminCode, /\.modal \.add-btn\s*\{/, '共用的 .add-btn 样式仍在');
 });
